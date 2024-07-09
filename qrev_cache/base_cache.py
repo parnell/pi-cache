@@ -290,7 +290,6 @@ class BaseCache(ABC):
                     metadata = ModelMetadata.from_dict(meta)
                 else:
                     metadata = ModelMetadata(creation_timestamp=None)
-                data_type : Optional[str] = metadata.data_type
                 if self.settings.force_data_type:
                     metadata.data_type = self.settings.force_data_type
                 if self.settings.is_flat_data:
@@ -494,14 +493,12 @@ def cache_decorator(cache_instance: BaseCache):
             func_call = cache_instance._create_func_call(
                 cache_instance, settings, func, *args, **kwargs
             )
-            # Use inspect to get the signature and parameters of the function
-            if cache_instance.exists(func_call):
-                cache_entry = cache_instance.get(func_call)
-                if cache_entry is not None and is_cache_valid(
-                    cache_entry.metadata, datetime.now(UTC), settings
-                ):
-                    cache_entry.metadata.from_cache = True
-                    return _return_obj(cache_entry, settings)
+            cache_entry = cache_instance.get(func_call)
+            if cache_entry is not None and is_cache_valid(
+                cache_entry.metadata, datetime.now(UTC), settings
+            ):
+                cache_entry.metadata.from_cache = True
+                return _return_obj(cache_entry, settings)
 
             result = func(*args, **kwargs)
 
