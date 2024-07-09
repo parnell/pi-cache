@@ -2,10 +2,11 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
+from tests.conftest import create_cache_entry  
 from pydantic import BaseModel
 
-from qrev_cache.base_cache import BaseCache, CacheEntry, ModelMetadata
-from qrev_cache.local_cache import LocalCache, LocalCacheSettings
+from qrev_cache.base_cache import BaseCache, CacheEntry, FuncCall, ModelMetadata
+from qrev_cache.local_cache import LocalCache, LocalCacheSettings, local_cache
 
 
 class SampleData(BaseModel):
@@ -14,21 +15,13 @@ class SampleData(BaseModel):
 
 @pytest.fixture
 def cache(tmp_path):
-    return LocalCache(settings=LocalCacheSettings(cache_dir=tmp_path))
+    lc = LocalCache(settings=LocalCacheSettings(cache_dir=tmp_path))
 
+    def _generate_cache_key(func_call: FuncCall) -> str:
+        return str(func_call)
 
-def create_cache_entry(data: Any, expires_in_hours: int = 1) -> CacheEntry:
-    now = datetime.now()
-    metadata = ModelMetadata(
-        creation_timestamp=now,
-        last_update_timestamp=now,
-        expires_at=now + timedelta(hours=expires_in_hours),
-        args=(),
-        kwargs={},
-        from_cache=False,
-        data_type=BaseCache._qualified_name(data),
-    )
-    return CacheEntry(metadata=metadata, data=data)
+    lc._generate_cache_key = _generate_cache_key
+    return lc
 
 
 class TestLocalCache:
@@ -79,6 +72,19 @@ class TestLocalCache:
 
         cache.set(key, entry)
         assert (tmp_path / f"cache_{key}.json").exists()
+
+    def test_local_cache_decorator(self, tmp_path):
+        @local_cache(cache_dir=tmp_path)
+        def test_func():
+            return SampleData(value="test_value")
+
+        data = test_func()
+        assert data.value == "test_value"
+        assert data._metadata.from_cache is False
+
+        data = test_func()
+        assert data.value == "test_value"
+        assert data._metadata.from_cache is True
 
 
 if __name__ == "__main__":

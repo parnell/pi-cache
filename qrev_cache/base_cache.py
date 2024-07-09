@@ -1,36 +1,45 @@
 import functools
+import hashlib
 import importlib
+import inspect
 import json
+import time
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 from importlib import import_module
 from typing import (
+    Annotated,
     Any,
     Callable,
     Dict,
     Generic,
-    overload,
     Hashable,
+    Iterable,
     Optional,
+    ParamSpec,
     Protocol,
     Type,
     TypeVar,
     Union,
-    runtime_checkable,
     cast,
+    overload,
+    runtime_checkable,
 )
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 from qrev_cache.utils.time_utils import parse_date_string
 
-
 T = TypeVar("T")
+P = ParamSpec("P")
+SettingsT = TypeVar("SettingsT", bound="CacheSettings")
 
 
-class TimeCheck(Enum):
+class TimeCheck(StrEnum):
     """Enum for specifying which timestamp to use for cache validation."""
 
     CREATION = "creation"
@@ -44,55 +53,132 @@ class CacheSettings(BaseSettings, Generic[T]):
     expiration: Optional[Union[str, int]] = None
     key_parameters: Optional[list[str]] = None
     time_check: TimeCheck = TimeCheck.CREATION
-
     return_metadata_as_member: bool = True
     return_metadata_on_primitives: bool = False
+    is_flat_data: bool = False
+    force_data_type: Optional[str] = Field(default=None, description="Force a specific data type. Useful when the data type cannot be inferred, or putting the cache on an already existing cache that doesn't implement data_type")
 
 
 class ModelMetadata(BaseModel):
     """Metadata associated with a cached item."""
 
-    creation_timestamp: Optional[datetime] = None
-    last_update_timestamp: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
-    args: tuple
-    kwargs: dict[str, Any]
-    from_cache: bool
-    data_type: str
+    creation_timestamp: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="Timestamp when the cache entry was created.",
+    )
+    last_update_timestamp: Optional[datetime] = Field(
+        default=None, description="Timestamp when the cache entry was last updated."
+    )
+    expires_at: Optional[datetime] = Field(
+        default=None, description="Timestamp when the cache entry expires."
+    )
+    args: tuple = Field(
+        default_factory=tuple, description="Arguments used to call the cached function."
+    )
+    kwargs: dict[str, Any] = Field(
+        default_factory=dict, description="Keyword arguments used to call the cached function."
+    )
+    from_cache: bool = Field(
+        default=False, description="Indicates if the result was retrieved from cache."
+    )
+    data_type: Optional[str] = Field(default=None, description="Type of data stored in the cache.")
+    is_flat_data: bool = Field(
+        default=False, description="Indicates if the data is stored in flat format."
+    )
 
-
-class MetadataWrapper(Generic[T]):
-    def __init__(self, value: T, metadata: Optional[ModelMetadata] = None):
-        self._value = value
-        self._metadata = metadata
-
-    def __getattr__(self, name: str):
-        return getattr(self._value, name)
-
-    @property
-    def _metadata(self) -> Optional[ModelMetadata]:
-        return self.__dict__["_metadata"]
-
-    @_metadata.setter
-    def _metadata(self, value: Optional[ModelMetadata]):
-        self.__dict__["_metadata"] = value
-
-
-
-@runtime_checkable
-class Serializable(Protocol):
-    """Protocol for objects that can be serialized and deserialized."""
-
-    def to_dict(self) -> dict: ...
+    def to_flat_dict(self) -> dict[str, Any]:
+        return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Serializable": ...
+    def from_flat_dict(cls, data: dict[str, Any]) -> "ModelMetadata":
+        return cls(**data)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ModelMetadata":
+        return cls(**data)
+
+
+@dataclass
+class FuncCall(Generic[SettingsT]):
+    cache_instance: "BaseCache"
+    settings: SettingsT
+    func: Callable[..., Any]
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
+    key_parameters: Optional[list[str]] = None
+    ignore_self: bool = False
+    bound_entity: Optional[type | object] = None
+    is_instance: bool = False
+
+
+class CacheEntry(BaseModel, Generic[T]):
+    """An entry in the cache, containing both metadata and data."""
+
+    metadata: ModelMetadata
+    data: T
+
+
+class TypeRegistry:
+    """Registry for custom type serialization and deserialization."""
+
+    _serializers: Dict[Type, Callable[[Any], Any]] = {}
+    _deserializers: Dict[str, Callable[[Any], Any]] = {}
+
+    @classmethod
+    def is_registered(cls, type_: Type) -> bool:
+        return type_ in cls._serializers
+
+    @classmethod
+    def register(cls, type_: Type) -> Callable[[Callable[[Any], Any]], Callable[[Any], Any]]:
+        def decorator(serializer: Callable[[Any], Any]) -> Callable[[Any], Any]:
+            cls._serializers[type_] = serializer
+            return serializer
+
+        return decorator
+
+    @classmethod
+    def register_deserializer(
+        cls, type_name: str
+    ) -> Callable[[Callable[[Any], Any]], Callable[[Any], Any]]:
+        def decorator(deserializer: Callable[[Any], Any]) -> Callable[[Any], Any]:
+            cls._deserializers[type_name] = deserializer
+            return deserializer
+
+        return decorator
+
+    @classmethod
+    def register_pydantic_model(
+        cls, model_class: Type[BaseModel], custom_serializer=None, custom_deserializer=None
+    ):
+        type_name = f"{model_class.__module__}.{model_class.__name__}"
+
+        if custom_serializer:
+            cls._serializers[model_class] = custom_serializer
+        else:
+
+            @cls.register(model_class)
+            def serialize_pydantic(obj: BaseModel):
+                return {
+                    "__pydantic_model__": type_name,
+                    "__data__": obj.model_dump(mode="json"),
+                }
+
+        if custom_deserializer:
+            cls._deserializers[type_name] = custom_deserializer
+        else:
+
+            @cls.register_deserializer(type_name)
+            def deserialize_pydantic(data: Dict[str, Any]):
+                return model_class(**data["__data__"])
 
 
 class MetadataCarrier:
     """A wrapper class that carries metadata along with a value."""
 
-    def __init__(self, value: Any, metadata: "ModelMetadata"):
+    def __init__(self, value: Any, metadata: ModelMetadata):
         self._value = value
         self._metadata = metadata
 
@@ -119,92 +205,25 @@ class MetadataCarrier:
         return self._value + other
 
     @property
-    def metadata(self) -> "ModelMetadata":
+    def metadata(self) -> ModelMetadata:
         return self._metadata
 
 
-class CacheEntry(BaseModel, Generic[T]):
-    """An entry in the cache, containing both metadata and data."""
-
-    metadata: ModelMetadata
-    data: T
-
-
-class TypeRegistry:
-    """Registry for custom type serialization and deserialization."""
-
-    _serializers: Dict[Type, Callable[[Any], Any]] = {}
-    _deserializers: Dict[str, Callable[[Any], Any]] = {}
-
-    @classmethod
-    def is_registered(cls, type_: Type) -> bool:
-        """Check if a type is registered for serialization."""
-        return type_ in cls._serializers
-
-    @classmethod
-    def register(cls, type_: Type) -> Callable[[Callable[[Any], Any]], Callable[[Any], Any]]:
-        """Decorator to register a serializer for a specific type."""
-
-        def decorator(serializer: Callable[[Any], Any]) -> Callable[[Any], Any]:
-            cls._serializers[type_] = serializer
-            return serializer
-
-        return decorator
-
-    @classmethod
-    def register_deserializer(
-        cls, type_name: str
-    ) -> Callable[[Callable[[Any], Any]], Callable[[Any], Any]]:
-        """Decorator to register a deserializer for a specific type name."""
-
-        def decorator(deserializer: Callable[[Any], Any]) -> Callable[[Any], Any]:
-            cls._deserializers[type_name] = deserializer
-            return deserializer
-
-        return decorator
-
-    @classmethod
-    def register_pydantic_model(
-        cls, model_class: Type[BaseModel], custom_serializer=None, custom_deserializer=None
-    ):
-        """Register a Pydantic model for serialization and deserialization."""
-        type_name = f"{model_class.__module__}.{model_class.__name__}"
-
-        if custom_serializer:
-            cls._serializers[model_class] = custom_serializer
-        else:
-
-            @cls.register(model_class)
-            def serialize_pydantic(obj: BaseModel):
-                return {
-                    "__pydantic_model__": type_name,
-                    "__data__": obj.model_dump(mode="json"),
-                }
-
-        if custom_deserializer:
-            cls._deserializers[type_name] = custom_deserializer
-        else:
-
-            @cls.register_deserializer(type_name)
-            def deserialize_pydantic(data: Dict[str, Any]):
-                return model_class(**data["__data__"])
-
-
-def custom_encoder(obj: Any) -> Any:
-    if isinstance(obj, CacheEntry):
-        obj_type = type(obj.data)
-        if not TypeRegistry.is_registered(obj_type):
-            TypeRegistry.register_pydantic_model(obj_type)
-
-        serializer = TypeRegistry._serializers[obj_type]
+def custom_encoder(obj: Any, only_pydantic_data: bool = False) -> Any:
     if isinstance(obj, datetime):
         return serialize_datetime(obj)
+    if isinstance(obj, ModelMetadata):
+        return obj.model_dump(mode="json")
+    if isinstance(obj, CacheEntry):
+        return obj.model_dump(mode="json")
     if isinstance(obj, BaseModel):
         if not TypeRegistry.is_registered(type(obj)):
             TypeRegistry.register_pydantic_model(type(obj))
-
         serializer = TypeRegistry._serializers[type(obj)]
-        return serializer(obj)
+        o = serializer(obj)
+        if only_pydantic_data:
+            return o["__data__"]
+        return o
     if isinstance(obj, (list, tuple)):
         return [custom_encoder(item) for item in obj]
     if isinstance(obj, dict):
@@ -214,8 +233,10 @@ def custom_encoder(obj: Any) -> Any:
 
 def custom_decoder(dct: Any) -> Any:
     if isinstance(dct, dict):
+        if "__model_metadata__" in dct:
+            return ModelMetadata.from_dict(dct["data"])
         if "__datetime__" in dct:
-            return deserialize_datetime(dct["__datetime__"])
+            return datetime.fromisoformat(dct["__datetime__"])
         if "__pydantic_model__" in dct and "__data__" in dct:
             type_name = dct["__pydantic_model__"]
             deserializer = TypeRegistry._deserializers.get(type_name)
@@ -223,7 +244,7 @@ def custom_decoder(dct: Any) -> Any:
                 return deserializer(dct)
             # Fallback to import method if not registered
             module_name, class_name = type_name.rsplit(".", 1)
-            module = import_module(module_name)
+            module = importlib.import_module(module_name)
             model_class = getattr(module, class_name)
             return model_class(**dct["__data__"])
         return {k: custom_decoder(v) for k, v in dct.items()}
@@ -233,44 +254,67 @@ def custom_decoder(dct: Any) -> Any:
 
 
 class BaseCache(ABC):
-    """Abstract base class for cache implementations."""
+    def __init__(self, settings: Optional[CacheSettings] = None):
+        self.settings = settings or CacheSettings()
 
     @abstractmethod
-    def get(self, key: Hashable) -> Optional[CacheEntry]:
-        """Retrieve a cache entry by key."""
+    def get(self, func_call: FuncCall) -> Optional[CacheEntry]:
         pass
 
     @abstractmethod
-    def set(self, key: Hashable, entry: CacheEntry) -> None:
-        """Set a cache entry for a given key."""
+    def set(self, func_call: FuncCall, entry: CacheEntry) -> None:
         pass
 
     @abstractmethod
-    def exists(self, key: Hashable) -> bool:
-        """Check if a key exists in the cache."""
+    def exists(self, func_call: FuncCall) -> bool:
         pass
 
     def serialize(self, entry: CacheEntry) -> str:
-        """Serialize a CacheEntry to a JSON string."""
-        return json.dumps(entry, default=custom_encoder)
+        return json.dumps(entry, cls=DateTimeEncoder, default=custom_encoder)
 
-    def deserialize(self, data: str) -> CacheEntry:
-        """Deserialize a JSON string to a CacheEntry."""
+    @classmethod
+    def _dump_cache_entry(cls, entry: CacheEntry, settings: CacheSettings) -> Dict[str, Any]:
+        if settings.is_flat_data:
+            d = custom_encoder(entry.data, only_pydantic_data=True)
+            d["metadata"] = entry.metadata.model_dump(mode="json")
+            return d
+
+        return entry.model_dump(mode="json")
+
+    def deserialize(self, data: str | dict) -> CacheEntry:
+        ## TODO: Need to clean up and make serializing/deserializing more consistent
+        if isinstance(data, dict):
+            if self.settings.is_flat_data:
+                meta = data.pop("metadata", None)
+                if meta:
+                    metadata = ModelMetadata.from_dict(meta)
+                else:
+                    metadata = ModelMetadata(creation_timestamp=None)
+                data_type : Optional[str] = metadata.data_type
+                if self.settings.force_data_type:
+                    metadata.data_type = self.settings.force_data_type
+                if self.settings.is_flat_data:
+                    metadata.is_flat_data = True
+                deserialized_data = self._deserialize_data(data, metadata.data_type)
+                return CacheEntry(metadata=metadata, data=deserialized_data)
+
+            ce = CacheEntry(**data)
+            deserialized_data = self._deserialize_data(ce.data, ce.metadata.data_type)
+            ce.data = deserialized_data
+            return ce
         try:
             ce = json.loads(data, object_hook=custom_decoder)
             if not isinstance(ce, CacheEntry):
-                raise ValueError("Deserialized object is not a CacheEntry")
+                ce = CacheEntry(**ce)
+                if not isinstance(ce, CacheEntry):
+                    raise ValueError("Deserialized object is not a CacheEntry")
             deserialized_data = self._deserialize_data(ce.data, ce.metadata.data_type)
             ce.data = deserialized_data
             return ce
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON data: {e}")
 
-    def _serialize_data(self, data: Any) -> Any:
-        """Serialize the data part of a CacheEntry."""
-        return custom_encoder(data)
-
-    def _deserialize_data(self, data: Any, data_type: str) -> Any:
+    def _deserialize_data(self, data: Any, data_type: Optional[str] = None) -> Any:
         if isinstance(data, dict) and "__pydantic_model__" in data:
             type_name = data["__pydantic_model__"]
             deserializer = TypeRegistry._deserializers.get(type_name)
@@ -291,131 +335,173 @@ class BaseCache(ABC):
 
         return data
 
-    def _get_model_class(self, model_name: str) -> Type[BaseModel]:
-        """Get the Pydantic model class by name."""
-        return globals()[model_name]
-
     @staticmethod
     def _qualified_name(obj_or_type: Union[object, Type[object]]) -> str:
         if not isinstance(obj_or_type, type):
             obj_or_type = type(obj_or_type)
         return f"{obj_or_type.__module__}.{obj_or_type.__name__}"
 
+    @classmethod
+    def _generate_cache_key(cls, func_call: FuncCall) -> str:
+        key_content = cls._generate_key_content(func_call)
+        key_hash = hashlib.sha256(str(key_content).encode()).hexdigest()
+        return f"{key_content['func_name']}_{key_hash[:10]}"
 
-def generate_cache_key(
-    func: Callable[..., Any],
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-    key_parameters: Optional[list[str]] = None,
-) -> Hashable:
-    """Generate a cache key based on function name, arguments, and specified key parameters."""
-    if key_parameters:
-        filtered_args = []
-        filtered_kwargs = {}
-        arg_names = func.__code__.co_varnames[: func.__code__.co_argcount]
-        for i, arg_name in enumerate(arg_names):
-            if arg_name in key_parameters:
-                if i < len(args):
-                    filtered_args.append(args[i])
-                elif arg_name in kwargs:
-                    filtered_kwargs[arg_name] = kwargs[arg_name]
-        for kw, value in kwargs.items():
-            if kw in key_parameters:
-                filtered_kwargs[kw] = value
-        key_content = (func.__name__, tuple(filtered_args), frozenset(filtered_kwargs.items()))
-    else:
-        key_content = (func.__name__, args, frozenset(kwargs.items()))
+    @classmethod
+    def _generate_key_content(cls, func_call: FuncCall) -> Dict[str, Any]:
+        func: Callable[..., Any] = func_call.func
+        args: tuple[Any, ...] = func_call.args
+        kwargs: dict[str, Any] = func_call.kwargs
+        key_parameters: Optional[list[str]] = func_call.key_parameters
+        ignore_self: bool = func_call.ignore_self
 
-    return hash(key_content)
+        # Get the function's signature
+        sig = inspect.signature(func)
+
+        # Check if the first parameter is 'self'
+        is_self = False if not ignore_self else list(sig.parameters.keys())[0] == "self"
+
+        if key_parameters:
+            filtered_args = []
+            filtered_kwargs = {}
+            arg_spec = inspect.getfullargspec(func)
+            arg_names = arg_spec.args
+
+            # Skip 'self' if it's a method
+            start_index = 1 if is_self else 0
+
+            for i, arg_name in enumerate(arg_names[start_index:], start=start_index):
+                if arg_name in key_parameters:
+                    if i < len(args):
+                        filtered_args.append(make_hashable(args[i]))
+                    elif arg_name in kwargs:
+                        filtered_kwargs[arg_name] = make_hashable(kwargs[arg_name])
+            for kw, value in kwargs.items():
+                if kw in key_parameters:
+                    filtered_kwargs[kw] = make_hashable(value)
+            key_content = {
+                "func_name": func.__name__,
+                "args": tuple(filtered_args),
+                "kwargs": filtered_kwargs,
+            }
+        else:
+            # Skip 'self' if it's a method
+            args_to_hash = args[1:] if is_self else args
+            key_content = {
+                "func_name": func.__name__,
+                "args": tuple(make_hashable(arg) for arg in args_to_hash),
+                "kwargs": {k: make_hashable(v) for k, v in kwargs.items()},
+            }
+
+        return key_content
+
+    @staticmethod
+    def _create_func_call(
+        cache_instance,
+        settings: CacheSettings,
+        func: Callable[P, T],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> FuncCall:
+        bound_entity, is_instance = _find_bound_entity(func, *args)
+        return FuncCall(
+            cache_instance=cache_instance,
+            settings=settings,
+            func=func,
+            args=args,
+            kwargs=kwargs,
+            key_parameters=settings.key_parameters,
+            bound_entity=bound_entity,
+            is_instance=is_instance,
+        )
+
+
+import hashlib
+import inspect
+from typing import Any, Callable, Dict, Hashable, Optional
+
+
+def make_hashable(item: Any) -> Hashable:
+    if isinstance(item, dict):
+        return frozenset((k, make_hashable(v)) for k, v in item.items())
+    elif isinstance(item, (list, set)):
+        return tuple(make_hashable(i) for i in item)
+    elif hasattr(item, "__iter__") and not isinstance(item, (str, bytes)):
+        return tuple(make_hashable(i) for i in item)
+    return item
 
 
 def is_cache_valid(
     metadata: ModelMetadata, current_time: datetime, settings: CacheSettings
 ) -> bool:
-    """Check if a cache entry is still valid based on the provided settings."""
     if settings.expiration is None:
-        return True  # Cache is always valid if no expiration is set
+        return True
 
     if settings.time_check == TimeCheck.CREATION:
-        if metadata.creation_timestamp is None:
-            return True  # Assume indefinite cache life if no creation timestamp
-        expiration_time = parse_expiration(settings.expiration, metadata.creation_timestamp)
+        reference_time = metadata.creation_timestamp
     elif settings.time_check == TimeCheck.LAST_UPDATE:
-        if metadata.last_update_timestamp is None:
-            return True  # Assume indefinite cache life if no last update timestamp
-        expiration_time = parse_expiration(settings.expiration, metadata.last_update_timestamp)
+        reference_time = metadata.last_update_timestamp or metadata.creation_timestamp
     elif settings.time_check == TimeCheck.EXPIRES_AT:
-        expiration_time = metadata.expires_at
+        return metadata.expires_at is None or current_time < metadata.expires_at
     else:
         raise ValueError(f"Invalid time_check option: {settings.time_check}")
 
-    return expiration_time is None or current_time < expiration_time
+    if reference_time is None:
+        return True
+
+    expiration_time = (
+        parse_date_string(settings.expiration, reference_time)
+        if isinstance(settings.expiration, str)
+        else reference_time + timedelta(seconds=settings.expiration)
+    )
+    return current_time < expiration_time
 
 
-def calculate_expiration(
-    reference_time: datetime, expiration: Optional[Union[str, int]]
-) -> Optional[datetime]:
-    """Calculate the expiration time based on the reference time and expiration setting."""
-    return parse_expiration(expiration, reference_time)
-
-
-def parse_expiration(
-    expiration: Optional[Union[str, int]], reference_time: datetime
-) -> Optional[datetime]:
-    """Parse the expiration setting and return the actual expiration datetime."""
-    if expiration is None:
-        return None
-    if isinstance(expiration, int):
-        return reference_time + timedelta(seconds=expiration)
-    try:
-        return parse_date_string(expiration, reference_time=reference_time)
-    except:
-        raise ValueError(f"Invalid expiration format: {expiration}")
-
-
-def _return_obj(cache_entry: CacheEntry[T], settings: CacheSettings[T]) -> MetadataWrapper[T]:
+def _return_obj(cache_entry: CacheEntry[T], settings: CacheSettings[T]) -> T:
     if not settings.return_metadata_as_member:
         return cache_entry.data
-    if "builtins" in cache_entry.metadata.data_type:
+    if cache_entry.metadata.data_type and "builtins" in cache_entry.metadata.data_type:
         if not settings.return_metadata_on_primitives:
             return cache_entry.data
-        return MetadataCarrier(cache_entry.data, cache_entry.metadata)
-    return MetadataWrapper(cache_entry.data, cache_entry.metadata)
-
-# @overload
-# def cache_decorator(
-#     cache_instance: BaseCache, settings: CacheSettings[Any]
-# ) -> Callable[[Callable[..., T]], Callable[..., T]]: ...
-
-
-# @overload
-# def cache_decorator(
-#     cache_instance: BaseCache,
-# ) -> Callable[[Callable[..., T]], Callable[..., T]]: ...
+        return (
+            cache_entry.data
+        )  # You might want to implement a way to attach metadata to primitives
+    if isinstance(cache_entry.data, dict):
+        cache_entry.data["_metadata"] = cache_entry.metadata
+    else:
+        setattr(cache_entry.data, "_metadata", cache_entry.metadata)
+    return cache_entry.data
 
 
-def cache_decorator(cache_instance: BaseCache, settings: Optional[CacheSettings[Any]] = None):
-    """Decorator for caching function results."""
+def _find_bound_entity(func: Callable, *args) -> tuple[type | object | None, bool]:
+    signature = inspect.signature(func)
+    parameters = list(signature.parameters.values())
+    if parameters and len(args) > 0:
+        first_param_name = parameters[0].name
+        if first_param_name == "self":
+            return args[0], True
+        elif first_param_name == "cls" and isinstance(args[0], type):
+            return args[0], False
+    return None, False
 
-    def decorator(func: Callable[..., T]) -> Callable[..., MetadataWrapper[T]]:
-        nonlocal settings
-        if settings is None:
-            settings = CacheSettings()  # Use default settings if not provided
 
-        # Cast settings to the correct type based on the function's return type
-        typed_settings = cast(CacheSettings[T], settings)
+def cache_decorator(cache_instance: BaseCache):
 
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> MetadataWrapper[T]:
-            key = generate_cache_key(func, args, kwargs, typed_settings.key_parameters)
-
-            if cache_instance.exists(key):
-                cache_entry = cache_instance.get(key)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            settings = cache_instance.settings
+            func_call = cache_instance._create_func_call(
+                cache_instance, settings, func, *args, **kwargs
+            )
+            # Use inspect to get the signature and parameters of the function
+            if cache_instance.exists(func_call):
+                cache_entry = cache_instance.get(func_call)
                 if cache_entry is not None and is_cache_valid(
-                    cache_entry.metadata, datetime.now(UTC), typed_settings
+                    cache_entry.metadata, datetime.now(UTC), settings
                 ):
                     cache_entry.metadata.from_cache = True
-                    return _return_obj(cache_entry, typed_settings)
+                    return _return_obj(cache_entry, settings)
 
             result = func(*args, **kwargs)
 
@@ -423,15 +509,24 @@ def cache_decorator(cache_instance: BaseCache, settings: Optional[CacheSettings[
             metadata = ModelMetadata(
                 creation_timestamp=current_time,
                 last_update_timestamp=current_time,
-                expires_at=calculate_expiration(current_time, typed_settings.expiration),
+                expires_at=(
+                    parse_date_string(settings.expiration, current_time)
+                    if isinstance(settings.expiration, str)
+                    else (
+                        current_time + timedelta(seconds=settings.expiration)
+                        if settings.expiration
+                        else None
+                    )
+                ),
                 args=args,
                 kwargs=kwargs,
                 from_cache=False,
                 data_type=BaseCache._qualified_name(result),
+                is_flat_data=settings.is_flat_data,
             )
             cache_entry = CacheEntry(metadata=metadata, data=result)
-            cache_instance.set(key, cache_entry)
-            return _return_obj(cache_entry, typed_settings)
+            cache_instance.set(func_call, cache_entry)
+            return _return_obj(cache_entry, settings)
 
         return wrapper
 
@@ -439,9 +534,9 @@ def cache_decorator(cache_instance: BaseCache, settings: Optional[CacheSettings[
 
 
 @TypeRegistry.register(datetime)
-def serialize_datetime(dt: datetime) -> dict:
+def serialize_datetime(dt: datetime) -> str:
     """Serialize a datetime object."""
-    return {"__datetime__": dt.isoformat()}
+    return dt.isoformat()
 
 
 @TypeRegistry.register_deserializer("__datetime__")
@@ -464,3 +559,7 @@ def datetime_decoder(dct):
     if "__datetime__" in dct:
         return deserialize_datetime(dct["__datetime__"])
     return dct
+
+
+TypeRegistry.register_pydantic_model(ModelMetadata)
+TypeRegistry.register_pydantic_model(CacheEntry)
