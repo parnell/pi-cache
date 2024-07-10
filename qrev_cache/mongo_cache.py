@@ -51,6 +51,7 @@ class MongoCacheSettings(CacheSettings):
     is_flat_data: bool = Field(
         default=True, description="By default we want Mongo to store data as a flat structure"
     )
+    skip_initial_verification: bool = False
 
     model_config = SettingsConfigDict(env_prefix="MONGO_CACHE_")
 
@@ -105,7 +106,8 @@ class MongoCache(BaseCache):
         self.client: Optional[MongoClient] = None
         self.db: Optional[Database] = None
         self.collection: Optional[Collection] = None
-        self.verify_connection()
+        if not self.settings.skip_initial_verification:
+            self.verify_connection()
 
     def get(self, func_call: FuncCall) -> Optional[CacheEntry]:
         self._ensure_connection()
@@ -248,6 +250,7 @@ def mongo_cache(
     flat_data: Optional[bool] = None,
     data_type: Optional[type] = None,
     cache_only: Optional[bool] = None,
+    skip_initial_verification: Optional[bool] = None,
 ):
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         cache_settings = create_mongo_cache_settings(settings, env_prefix)
@@ -276,6 +279,8 @@ def mongo_cache(
             cache_settings.force_data_type = BaseCache._qualified_name(data_type)
         if cache_only is not None:
             cache_settings.cache_only = cache_only
+        if skip_initial_verification is not None:
+            cache_settings.skip_initial_verification = skip_initial_verification
 
         cache_instance = MongoCache(settings=cache_settings)
 
