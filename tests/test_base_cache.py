@@ -185,7 +185,7 @@ class TestBaseCache:
             return T(x=x)
 
         r = cached_function(3)
-        assert r._metadata
+        assert r._metadata # type: ignore
         assert type(r) == T
 
         assert r.x == 3

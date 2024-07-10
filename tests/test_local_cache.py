@@ -84,11 +84,11 @@ class TestLocalCache:
 
         data = test_func()
         assert data.value == "test_value"
-        assert data._metadata.from_cache is False
+        assert data._metadata.from_cache is False # type: ignore
 
         data = test_func()
         assert data.value == "test_value"
-        assert data._metadata.from_cache is True
+        assert data._metadata.from_cache is True # type: ignore
 
 
 if __name__ == "__main__":

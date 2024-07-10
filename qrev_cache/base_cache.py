@@ -482,7 +482,7 @@ def _return_obj(cache_entry: CacheEntry[T], settings: CacheSettings[T]) -> T:
         cache_entry.data["_metadata"] = cache_entry.metadata
     else:
         setattr(cache_entry.data, "_metadata", cache_entry.metadata)
-    return cache_entry.data
+    return cache_entry.data # type: ignore
 
 
 def _find_bound_entity(func: Callable, *args) -> tuple[type | object | None, bool]:
