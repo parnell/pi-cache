@@ -1,19 +1,18 @@
 import os
 from pathlib import Path
-from typing import Callable, Hashable, List, Literal, Optional, TypeVar, Union, Literal
+from typing import Callable, Optional, Union
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
 
 from qrev_cache.base_cache import (
     BaseCache,
     CacheEntry,
     CacheSettings,
+    FuncCall,
     P,
     T,
     TimeCheck,
     cache_decorator,
-    FuncCall,
 )
 
 
@@ -32,23 +31,23 @@ class LocalCache(BaseCache):
         self.settings = settings or LocalCacheSettings()
         os.makedirs(self.settings.cache_dir, exist_ok=True)
 
-    def get(self, func_call: FuncCall) -> Optional[CacheEntry]:
+    def get(self, func_call: FuncCall[LocalCacheSettings]) -> Optional[CacheEntry]:
         key = self._generate_cache_key(func_call)
-        cache_file = os.path.join(self.settings.cache_dir, f"cache_{key}.json")
+        cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
         if os.path.exists(cache_file):
             with open(cache_file, "r") as f:
                 return self.deserialize(f.read())
         return None
 
-    def set(self, func_call: FuncCall, entry: CacheEntry) -> None:
+    def set(self, func_call: FuncCall[LocalCacheSettings], entry: CacheEntry) -> None:
         key = self._generate_cache_key(func_call)
-        cache_file = os.path.join(self.settings.cache_dir, f"cache_{key}.json")
+        cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
         with open(cache_file, "w") as f:
             f.write(self.serialize(entry))
 
-    def exists(self, func_call: FuncCall) -> bool:
+    def exists(self, func_call: FuncCall[LocalCacheSettings]) -> bool:
         key = self._generate_cache_key(func_call)
-        cache_file = os.path.join(self.settings.cache_dir, f"cache_{key}.json")
+        cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
         return os.path.exists(cache_file)
 
 

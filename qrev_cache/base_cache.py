@@ -3,30 +3,23 @@ import hashlib
 import importlib
 import inspect
 import json
-import time
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from importlib import import_module
 from typing import (
-    Annotated,
     Any,
     Callable,
     Dict,
     Generic,
     Hashable,
-    Iterable,
     Optional,
     ParamSpec,
-    Protocol,
     Type,
     TypeVar,
     Union,
     cast,
     overload,
-    runtime_checkable,
 )
 
 from pydantic import BaseModel, Field
@@ -36,6 +29,7 @@ from qrev_cache.utils.time_utils import parse_date_string
 
 T = TypeVar("T")
 P = ParamSpec("P")
+E = TypeVar('E', bound=Exception)
 SettingsT = TypeVar("SettingsT", bound="CacheSettings")
 
 
@@ -56,7 +50,10 @@ class CacheSettings(BaseSettings, Generic[T]):
     return_metadata_as_member: bool = True
     return_metadata_on_primitives: bool = False
     is_flat_data: bool = False
-    force_data_type: Optional[str] = Field(default=None, description="Force a specific data type. Useful when the data type cannot be inferred, or putting the cache on an already existing cache that doesn't implement data_type")
+    force_data_type: Optional[str] = Field(
+        default=None,
+        description="Force a specific data type. Useful when the data type cannot be inferred, or putting the cache on an already existing cache that doesn't implement data_type",
+    )
 
 
 class ModelMetadata(BaseModel):
@@ -101,6 +98,16 @@ class ModelMetadata(BaseModel):
         return cls(**data)
 
 
+class MetaMixin:
+    """Mixin class to add metadata to a class. primarily for errors"""
+
+    metadata: ModelMetadata
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args)  # type: ignore
+        self.metadata = kwargs.get("_metadata", {})
+
+
 @dataclass
 class FuncCall(Generic[SettingsT]):
     cache_instance: "BaseCache"
@@ -117,7 +124,7 @@ class FuncCall(Generic[SettingsT]):
 class CacheEntry(BaseModel, Generic[T]):
     """An entry in the cache, containing both metadata and data."""
 
-    metadata: ModelMetadata
+    metadata: ModelMetadata = Field(alias="_metadata")
     data: T
 
 
@@ -215,7 +222,7 @@ def custom_encoder(obj: Any, only_pydantic_data: bool = False) -> Any:
     if isinstance(obj, ModelMetadata):
         return obj.model_dump(mode="json")
     if isinstance(obj, CacheEntry):
-        return obj.model_dump(mode="json")
+        return obj.model_dump(mode="json", by_alias=True)
     if isinstance(obj, BaseModel):
         if not TypeRegistry.is_registered(type(obj)):
             TypeRegistry.register_pydantic_model(type(obj))
@@ -276,7 +283,7 @@ class BaseCache(ABC):
     def _dump_cache_entry(cls, entry: CacheEntry, settings: CacheSettings) -> Dict[str, Any]:
         if settings.is_flat_data:
             d = custom_encoder(entry.data, only_pydantic_data=True)
-            d["metadata"] = entry.metadata.model_dump(mode="json")
+            d["_metadata"] = entry.metadata.model_dump(mode="json")
             return d
 
         return entry.model_dump(mode="json")
@@ -285,7 +292,7 @@ class BaseCache(ABC):
         ## TODO: Need to clean up and make serializing/deserializing more consistent
         if isinstance(data, dict):
             if self.settings.is_flat_data:
-                meta = data.pop("metadata", None)
+                meta = data.pop("_metadata", None)
                 if meta:
                     metadata = ModelMetadata.from_dict(meta)
                 else:
@@ -295,7 +302,7 @@ class BaseCache(ABC):
                 if self.settings.is_flat_data:
                     metadata.is_flat_data = True
                 deserialized_data = self._deserialize_data(data, metadata.data_type)
-                return CacheEntry(metadata=metadata, data=deserialized_data)
+                return CacheEntry(_metadata=metadata, data=deserialized_data)
 
             ce = CacheEntry(**data)
             deserialized_data = self._deserialize_data(ce.data, ce.metadata.data_type)
@@ -328,9 +335,9 @@ class BaseCache(ABC):
                 class_ = getattr(module, class_name)
                 if issubclass(class_, BaseModel):
                     return class_(**data)
-                # For non-Pydantic types, you might need to implement custom deserialization logic
+                # TODO: For non-Pydantic types, implement custom deserialization logic
             except (ImportError, AttributeError, ValueError):
-                pass  # Fall back to returning data as is
+                raise
 
         return data
 
@@ -413,12 +420,18 @@ class BaseCache(ABC):
             bound_entity=bound_entity,
             is_instance=is_instance,
         )
+@overload
+def cast_exception(e: E) -> Union[E, MetaMixin]:
+    ...
 
+@overload
+def cast_exception(e: E, exception_type: Type[E]) -> Union[E, MetaMixin]:
+    ...
 
-import hashlib
-import inspect
-from typing import Any, Callable, Dict, Hashable, Optional
-
+def cast_exception(e: E, exception_type: Type[E] | None = None) -> Union[E, MetaMixin]:
+    if exception_type is None:
+        exception_type = type(e)
+    return cast(Union[exception_type, MetaMixin], e) # type: ignore
 
 def make_hashable(item: Any) -> Hashable:
     if isinstance(item, dict):
@@ -500,7 +513,16 @@ def cache_decorator(cache_instance: BaseCache):
                 cache_entry.metadata.from_cache = True
                 return _return_obj(cache_entry, settings)
 
-            result = func(*args, **kwargs)
+            exception: Optional[Exception] = None
+
+            try:
+                result = func(*args, **kwargs)
+            except Exception as e:
+                if hasattr(e, "save_var"):
+                    result = getattr(e, "save_var")
+                    exception = e
+                else:
+                    raise e
 
             current_time = datetime.now(UTC)
             metadata = ModelMetadata(
@@ -521,8 +543,12 @@ def cache_decorator(cache_instance: BaseCache):
                 data_type=BaseCache._qualified_name(result),
                 is_flat_data=settings.is_flat_data,
             )
-            cache_entry = CacheEntry(metadata=metadata, data=result)
+            cache_entry = CacheEntry(_metadata=metadata, data=result)
             cache_instance.set(func_call, cache_entry)
+
+            if exception:
+                setattr(result, "_metadata", metadata)
+                raise exception
             return _return_obj(cache_entry, settings)
 
         return wrapper

@@ -1,16 +1,12 @@
 import functools
 import inspect
-import json
-import os
 import re
 import threading
-from copy import deepcopy
-from dataclasses import dataclass, field
 from logging import getLogger
-from typing import Any, Callable, Hashable, List, Literal, Optional, TypeVar, Union
+from typing import Any, Callable, Optional, Union
 
-import pymongo
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+from pydantic_settings import SettingsConfigDict
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -52,6 +48,9 @@ class MongoCacheSettings(CacheSettings):
     expiration: Optional[str | int] = None
     key_parameters: Optional[list[str]] = None
     query: dict = {}
+    is_flat_data: bool = Field(
+        default=True, description="By default we want Mongo to store data as a flat structure"
+    )
 
     model_config = SettingsConfigDict(env_prefix="MONGO_CACHE_")
 

@@ -106,14 +106,6 @@ class TestBaseCache:
         assert deserialized.data == data
         assert deserialized.metadata == entry.metadata
 
-    # def test_custom_encoder_decoder(self):
-    #     data = {"datetime": datetime.now(), "sample": SampleData(value="test")}
-    #     encoded = json.dumps(data, default=custom_encoder)
-    #     decoded = json.loads(encoded, object_hook=custom_decoder)
-
-    #     assert isinstance(decoded["datetime"], datetime)
-    #     assert isinstance(decoded["sample"], SampleData)
-    #     assert decoded["sample"].value == "test"
 
     def test_cache_validation(self, cache):
         key = "test_key"
@@ -184,6 +176,20 @@ class TestBaseCache:
         assert r == 1
         assert type(r) == int
 
+    def test_cache_models(self, cache):
+        class T(BaseModel):
+            x: int
+
+        @cache_decorator(cache)
+        def cached_function(x: int) -> T:
+            return T(x=x)
+
+        r = cached_function(3)
+        assert r._metadata
+        assert type(r) == T
+
+        assert r.x == 3
+
     # def test_primitive_cache_int(self, cache):
     #     data = 1
 
@@ -199,20 +205,6 @@ class TestBaseCache:
     #     r = cached_int_function(data)
     #     assert r == 1
     #     assert r._metadata.from_cache == True
-
-    def test_cache_models(self, cache):
-        class T(BaseModel):
-            x: int
-
-        @cache_decorator(cache)
-        def cached_function(x: int) -> T:
-            return T(x=x)
-
-        r = cached_function(3)
-        assert r._metadata
-        assert type(r) == T
-
-        assert r.x == 3
 
     # def test_flat_metadata(self, cache):
     #     class T(BaseModel):
@@ -234,6 +226,14 @@ class TestBaseCache:
     #     assert r.x == 3
     #     assert r._metadata.from_cache == True
 
+    # def test_custom_encoder_decoder(self):
+    #     data = {"datetime": datetime.now(), "sample": SampleData(value="test")}
+    #     encoded = json.dumps(data, default=custom_encoder)
+    #     decoded = json.loads(encoded, object_hook=custom_decoder)
+
+    #     assert isinstance(decoded["datetime"], datetime)
+    #     assert isinstance(decoded["sample"], SampleData)
+    #     assert decoded["sample"].value == "test"
 
 if __name__ == "__main__":
     pytest.main([__file__])

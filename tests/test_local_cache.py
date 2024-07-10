@@ -1,12 +1,10 @@
-from datetime import datetime, timedelta
-from typing import Any
 
 import pytest
-from tests.conftest import create_cache_entry  
 from pydantic import BaseModel
 
-from qrev_cache.base_cache import BaseCache, CacheEntry, FuncCall, ModelMetadata
+from qrev_cache.base_cache import FuncCall
 from qrev_cache.local_cache import LocalCache, LocalCacheSettings, local_cache
+from tests.conftest import create_cache_entry
 
 
 class SampleData(BaseModel):
@@ -23,10 +21,15 @@ def cache(tmp_path):
     lc._generate_cache_key = _generate_cache_key
     return lc
 
+class SimpleKey:
+    def __init__(self, key: str, cache_instance: LocalCache):
+        self.key = key
+        self.settings = cache_instance.settings
 
 class TestLocalCache:
     def test_set_and_get(self, cache):
-        key = "test_key"
+        key = SimpleKey("test_key", cache)
+
         data = SampleData(value="test_value")
         entry = create_cache_entry(data)
 
@@ -38,7 +41,7 @@ class TestLocalCache:
         assert retrieved_entry.metadata == entry.metadata
 
     def test_exists(self, cache):
-        key = "test_key"
+        key = SimpleKey("test_key", cache)
         data = SampleData(value="test_value")
         entry = create_cache_entry(data)
 
@@ -47,10 +50,11 @@ class TestLocalCache:
         assert cache.exists(key)
 
     def test_get_nonexistent_key(self, cache):
-        assert cache.get("nonexistent_key") is None
+        key = SimpleKey("nonexistent_key", cache)
+        assert cache.get(key) is None
 
     def test_overwrite_existing_entry(self, cache):
-        key = "test_key"
+        key = SimpleKey("test_key", cache)
         data1 = SampleData(value="test_value_1")
         data2 = SampleData(value="test_value_2")
 
@@ -66,7 +70,7 @@ class TestLocalCache:
         assert retrieved_entry.metadata == entry2.metadata
 
     def test_file_creation(self, cache, tmp_path):
-        key = "test_key"
+        key = SimpleKey("test_key", cache)
         data = SampleData(value="test_value")
         entry = create_cache_entry(data)
 

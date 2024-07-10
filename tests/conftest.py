@@ -1,14 +1,11 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import pytest
-from pydantic_settings import BaseSettings
-
-from qrev_cache.base_cache import BaseCache, CacheEntry, FuncCall, ModelMetadata
+from qrev_cache.base_cache import BaseCache, CacheEntry, ModelMetadata
 
 
 def create_cache_entry(data: Any, expires_in_hours: int = 1) -> CacheEntry:
-    now = datetime.now(UTC)  # or `datetime.now(timezone.utc)`
+    now = datetime.now(UTC)
     metadata = ModelMetadata(
         creation_timestamp=now,
         last_update_timestamp=now,
@@ -18,4 +15,4 @@ def create_cache_entry(data: Any, expires_in_hours: int = 1) -> CacheEntry:
         from_cache=False,
         data_type=BaseCache._qualified_name(data),
     )
-    return CacheEntry(metadata=metadata, data=data)
+    return CacheEntry(_metadata=metadata, data=data)
