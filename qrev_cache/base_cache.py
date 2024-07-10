@@ -29,8 +29,16 @@ from qrev_cache.utils.time_utils import parse_date_string
 
 T = TypeVar("T")
 P = ParamSpec("P")
-E = TypeVar('E', bound=Exception)
+E = TypeVar("E", bound=Exception)
 SettingsT = TypeVar("SettingsT", bound="CacheSettings")
+
+
+class CacheMissError(Exception):
+    """Exception raised when a cache miss occurs."""
+
+    def __init__(self, func_call: "FuncCall", message: str):
+        self.func_call = func_call
+        super().__init__(message)
 
 
 class TimeCheck(StrEnum):
@@ -53,6 +61,9 @@ class CacheSettings(BaseSettings, Generic[T]):
     force_data_type: Optional[str] = Field(
         default=None,
         description="Force a specific data type. Useful when the data type cannot be inferred, or putting the cache on an already existing cache that doesn't implement data_type",
+    )
+    cache_only: bool = Field(
+        default=False, description="Only use the cache, do not call the function."
     )
 
 
@@ -420,18 +431,21 @@ class BaseCache(ABC):
             bound_entity=bound_entity,
             is_instance=is_instance,
         )
-@overload
-def cast_exception(e: E) -> Union[E, MetaMixin]:
-    ...
+
 
 @overload
-def cast_exception(e: E, exception_type: Type[E]) -> Union[E, MetaMixin]:
-    ...
+def cast_exception(e: E) -> Union[E, MetaMixin]: ...
+
+
+@overload
+def cast_exception(e: E, exception_type: Type[E]) -> Union[E, MetaMixin]: ...
+
 
 def cast_exception(e: E, exception_type: Type[E] | None = None) -> Union[E, MetaMixin]:
     if exception_type is None:
         exception_type = type(e)
-    return cast(Union[exception_type, MetaMixin], e) # type: ignore
+    return cast(Union[exception_type, MetaMixin], e)  # type: ignore
+
 
 def make_hashable(item: Any) -> Hashable:
     if isinstance(item, dict):
@@ -482,7 +496,7 @@ def _return_obj(cache_entry: CacheEntry[T], settings: CacheSettings[T]) -> T:
         cache_entry.data["_metadata"] = cache_entry.metadata
     else:
         setattr(cache_entry.data, "_metadata", cache_entry.metadata)
-    return cache_entry.data # type: ignore
+    return cache_entry.data  # type: ignore
 
 
 def _find_bound_entity(func: Callable, *args) -> tuple[type | object | None, bool]:
@@ -512,6 +526,11 @@ def cache_decorator(cache_instance: BaseCache):
             ):
                 cache_entry.metadata.from_cache = True
                 return _return_obj(cache_entry, settings)
+            if settings.cache_only:
+                raise CacheMissError(
+                    func_call,
+                    f"Cache miss for {func.__name__} with args: {args} and kwargs: {kwargs}",
+                )
 
             exception: Optional[Exception] = None
 

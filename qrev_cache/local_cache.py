@@ -59,6 +59,7 @@ def local_cache(
     cache_dir: Optional[Union[str, Path]] = None,
     return_metadata_as_member: Optional[bool] = None,
     return_metadata_on_primitives: Optional[bool] = None,
+    cache_only: Optional[bool] = None,
 ):
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         cache_settings = settings or LocalCacheSettings()
@@ -75,6 +76,8 @@ def local_cache(
             cache_settings.return_metadata_as_member = return_metadata_as_member
         if return_metadata_on_primitives is not None:
             cache_settings.return_metadata_on_primitives = return_metadata_on_primitives
+        if cache_only is not None:
+            cache_settings.cache_only = cache_only
 
         cache_instance = LocalCache(settings=cache_settings)
         return cache_decorator(cache_instance)(func)

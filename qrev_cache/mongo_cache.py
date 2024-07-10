@@ -247,6 +247,7 @@ def mongo_cache(
     return_metadata_on_primitives: Optional[bool] = None,
     flat_data: Optional[bool] = None,
     data_type: Optional[type] = None,
+    cache_only: Optional[bool] = None,
 ):
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         cache_settings = create_mongo_cache_settings(settings, env_prefix)
@@ -273,6 +274,8 @@ def mongo_cache(
             cache_settings.is_flat_data = flat_data
         if data_type is not None:
             cache_settings.force_data_type = BaseCache._qualified_name(data_type)
+        if cache_only is not None:
+            cache_settings.cache_only = cache_only
 
         cache_instance = MongoCache(settings=cache_settings)
 
