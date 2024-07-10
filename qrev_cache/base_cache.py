@@ -529,7 +529,7 @@ def cache_decorator(cache_instance: BaseCache):
             if settings.cache_only:
                 raise CacheMissError(
                     func_call,
-                    f"Cache miss for {func.__name__} with args: {args} and kwargs: {kwargs}",
+                    f"Cache miss for {func.__qualname__} args: {args}, kwargs: {kwargs}",
                 )
 
             exception: Optional[Exception] = None
