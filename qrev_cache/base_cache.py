@@ -25,28 +25,19 @@ from typing import (
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
+from qrev_cache.models import (
+    CacheEntry,
+    CacheMissError,
+    MetaMixin,
+    ModelMetadata,
+    TimeCheck,
+)
 from qrev_cache.utils.time_utils import parse_date_string
 
 T = TypeVar("T")
 P = ParamSpec("P")
 E = TypeVar("E", bound=Exception)
 SettingsT = TypeVar("SettingsT", bound="CacheSettings")
-
-
-class CacheMissError(Exception):
-    """Exception raised when a cache miss occurs."""
-
-    def __init__(self, func_call: "FuncCall", message: str):
-        self.func_call = func_call
-        super().__init__(message)
-
-
-class TimeCheck(StrEnum):
-    """Enum for specifying which timestamp to use for cache validation."""
-
-    CREATION = "creation"
-    LAST_UPDATE = "last_update"
-    EXPIRES_AT = "expires_at"
 
 
 class CacheSettings(BaseSettings, Generic[T]):
@@ -67,58 +58,6 @@ class CacheSettings(BaseSettings, Generic[T]):
     )
 
 
-class ModelMetadata(BaseModel):
-    """Metadata associated with a cached item."""
-
-    creation_timestamp: Optional[datetime] = Field(
-        default_factory=lambda: datetime.now(UTC),
-        description="Timestamp when the cache entry was created.",
-    )
-    last_update_timestamp: Optional[datetime] = Field(
-        default=None, description="Timestamp when the cache entry was last updated."
-    )
-    expires_at: Optional[datetime] = Field(
-        default=None, description="Timestamp when the cache entry expires."
-    )
-    args: tuple = Field(
-        default_factory=tuple, description="Arguments used to call the cached function."
-    )
-    kwargs: dict[str, Any] = Field(
-        default_factory=dict, description="Keyword arguments used to call the cached function."
-    )
-    from_cache: bool = Field(
-        default=False, description="Indicates if the result was retrieved from cache."
-    )
-    data_type: Optional[str] = Field(default=None, description="Type of data stored in the cache.")
-    is_flat_data: bool = Field(
-        default=False, description="Indicates if the data is stored in flat format."
-    )
-
-    def to_flat_dict(self) -> dict[str, Any]:
-        return self.model_dump()
-
-    @classmethod
-    def from_flat_dict(cls, data: dict[str, Any]) -> "ModelMetadata":
-        return cls(**data)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return self.model_dump()
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ModelMetadata":
-        return cls(**data)
-
-
-class MetaMixin:
-    """Mixin class to add metadata to a class. primarily for errors"""
-
-    metadata: ModelMetadata
-
-    def __init__(self, *args: Any, **kwargs: Any):
-        super().__init__(*args)  # type: ignore
-        self.metadata = kwargs.get("_metadata", {})
-
-
 @dataclass
 class FuncCall(Generic[SettingsT]):
     cache_instance: "BaseCache"
@@ -130,13 +69,6 @@ class FuncCall(Generic[SettingsT]):
     ignore_self: bool = False
     bound_entity: Optional[type | object] = None
     is_instance: bool = False
-
-
-class CacheEntry(BaseModel, Generic[T]):
-    """An entry in the cache, containing both metadata and data."""
-
-    metadata: ModelMetadata = Field(alias="_metadata")
-    data: T
 
 
 class TypeRegistry:
@@ -191,40 +123,6 @@ class TypeRegistry:
             @cls.register_deserializer(type_name)
             def deserialize_pydantic(data: Dict[str, Any]):
                 return model_class(**data["__data__"])
-
-
-class MetadataCarrier:
-    """A wrapper class that carries metadata along with a value."""
-
-    def __init__(self, value: Any, metadata: ModelMetadata):
-        self._value = value
-        self._metadata = metadata
-
-    def __repr__(self) -> str:
-        return repr(self._value)
-
-    def __str__(self) -> str:
-        return str(self._value)
-
-    def __int__(self) -> int:
-        return int(self._value)
-
-    def __float__(self) -> float:
-        return float(self._value)
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, MetadataCarrier):
-            return self._value == other._value
-        return self._value == other
-
-    def __add__(self, other: Any) -> Any:
-        if isinstance(other, MetadataCarrier):
-            return self._value + other._value
-        return self._value + other
-
-    @property
-    def metadata(self) -> ModelMetadata:
-        return self._metadata
 
 
 def custom_encoder(obj: Any, only_pydantic_data: bool = False) -> Any:

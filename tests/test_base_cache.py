@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Hashable, Optional
+from typing import Any, Hashable, Optional, cast
 
 import pytest
 from pydantic import BaseModel
@@ -10,7 +10,6 @@ from qrev_cache.base_cache import (
     CacheEntry,
     CacheSettings,
     FuncCall,
-    MetadataCarrier,
     ModelMetadata,
     TimeCheck,
     TypeRegistry,
@@ -19,6 +18,7 @@ from qrev_cache.base_cache import (
     custom_encoder,
     is_cache_valid,
 )
+from qrev_cache.models import MetadataCarrier, MetaMixin
 from tests.conftest import create_cache_entry
 
 
@@ -200,31 +200,35 @@ class TestBaseCache:
     #     r = cached_int_function(data)
     #     assert r == 1
     #     assert r + 1 == 2
+    #     r = cast(MetaMixin, r)
     #     assert r._metadata.from_cache == False
 
     #     r = cached_int_function(data)
     #     assert r == 1
+    #     r = cast(MetaMixin, r)
     #     assert r._metadata.from_cache == True
 
-    # def test_flat_metadata(self, cache):
-    #     class T(BaseModel):
-    #         x: int
+    def test_flat_metadata(self, cache):
+        class T(BaseModel):
+            x: int
 
-    #     cache.use_flat_metadata = True
+        cache.use_flat_metadata = True
 
-    #     @cache_decorator(cache)
-    #     def cached_function(x: int) -> T:
-    #         return T(x=x)
+        @cache_decorator(cache)
+        def cached_function(x: int) -> T:
+            return T(x=x)
 
-    #     r = cached_function(3)
-    #     assert r._metadata
-    #     assert r.x == 3
+        r = cached_function(3)
+        assert r.x == 3
+        r = cast(MetaMixin, r)
+        assert r._metadata
 
-    #     assert r._metadata.from_cache == False
+        assert r._metadata.from_cache == False
 
-    #     r = cached_function(3)
-    #     assert r.x == 3
-    #     assert r._metadata.from_cache == True
+        r = cached_function(3)
+        assert r.x == 3
+        r = cast(MetaMixin, r)
+        assert r._metadata.from_cache == True
 
     # def test_custom_encoder_decoder(self):
     #     data = {"datetime": datetime.now(), "sample": SampleData(value="test")}
