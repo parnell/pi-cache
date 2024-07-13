@@ -107,10 +107,9 @@ class MongoCache(BaseCache):
         self.db: Optional[Database] = None
         self.collection: Optional[Collection] = None
         if not self.settings.skip_initial_verification:
-            self.verify_connection()
+            self._create_connection()
 
     def get(self, func_call: FuncCall) -> Optional[CacheEntry]:
-        self._ensure_connection()
         assert self.collection is not None
         query = self._make_query(func_call)
         result = self.collection.find_one(query)
@@ -119,56 +118,46 @@ class MongoCache(BaseCache):
         return self.deserialize(result)
 
     def set(self, func_call: FuncCall, entry: CacheEntry) -> None:
-        self._ensure_connection()
         assert self.collection is not None
-        # entry.model_dump(mode="json")
         d = self._dump_cache_entry(entry, func_call.settings)
         self.collection.insert_one(d)
 
     def exists(self, func_call: FuncCall[MongoCacheSettings]) -> bool:
-        self._ensure_connection()
-        assert self.collection is not None
-        query = self._make_query(func_call)
-        result = self.collection.find_one(query)
-        return result is not None
+        return self.get(func_call) is not None
+
+    def _create_connection(
+        self,
+        serverSelectionTimeoutMS: int = 30000,
+        connectTimeoutMS: Optional[int] = None,
+        socketTimeoutMS: Optional[int] = None,
+    ):
+        self.client = MongoClient(
+            self.settings.uri,
+            serverSelectionTimeoutMS=serverSelectionTimeoutMS,
+            connectTimeoutMS=connectTimeoutMS,
+            socketTimeoutMS=socketTimeoutMS,
+        )
+        assert self.client is not None
+        assert self.settings.database is not None
+        self.db = self.client[self.settings.database]
+        self.collection = self.db[self.settings.collection]
 
     def __enter__(self):
-        self._ensure_connection()
+        self._create_connection()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.safe_close()
 
-    def verify_connection(self) -> bool:
+    def _verify_connection(self) -> bool:
         if self.client is None:
-            self._ensure_connection(1000)
-        assert self.client is not None
+            raise ConnectionFailure("MongoDB client is not initialized")
         try:
             self.client.admin.command("ping")
             return True
         except ConnectionFailure:
             log.error(f"MongoDB connection failure {self.settings}")
             return False
-
-    def _ensure_connection(
-        self,
-        serverSelectionTimeoutMS: int = 30000,
-        connectTimeoutMS: Optional[int] = None,
-        socketTimeoutMS: Optional[int] = None,
-    ):
-        if self.client is None:
-            self.client = MongoClient(
-                self.settings.uri,
-                serverSelectionTimeoutMS=serverSelectionTimeoutMS,
-                connectTimeoutMS=connectTimeoutMS,
-                socketTimeoutMS=socketTimeoutMS,
-            )
-            assert self.client is not None
-            assert self.settings.database is not None
-            self.db = self.client[self.settings.database]
-            self.collection = self.db[self.settings.collection]
-            if not self.verify_connection():
-                raise ConnectionFailure("Failed to establish MongoDB connection")
 
     def safe_close(self):
         if self.client:
@@ -236,6 +225,7 @@ def create_mongo_cache_settings(
 
 
 def mongo_cache(
+        cache: Optional[MongoCache] = None,
     settings: Optional[MongoCacheSettings] = None,
     uri: Optional[str] = None,
     database: Optional[str] = None,
@@ -253,7 +243,10 @@ def mongo_cache(
     skip_initial_verification: Optional[bool] = None,
 ):
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
-        cache_settings = create_mongo_cache_settings(settings, env_prefix)
+        if cache is None:
+            cache_settings = create_mongo_cache_settings(settings, env_prefix)
+        else:
+            cache_settings = cache.settings
 
         if uri is not None:
             cache_settings.uri = uri
@@ -282,7 +275,10 @@ def mongo_cache(
         if skip_initial_verification is not None:
             cache_settings.skip_initial_verification = skip_initial_verification
 
-        cache_instance = MongoCache(settings=cache_settings)
+        if cache is None:
+            cache_instance = MongoCache(settings=cache_settings)
+        else:
+            cache_instance = cache
 
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
