@@ -15,6 +15,9 @@ docker_staging*
 
 ## System
 .env
+.config.toml
+.config-test.toml
+
 
 ## Poetry
 .poetry.toml
