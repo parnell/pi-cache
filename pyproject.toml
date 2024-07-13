@@ -8,7 +8,7 @@ description = "Easy Cache using local files, in memory, or MongoDB."
 name = "qrev-cache"
 packages = [{include = "qrev_cache"}]
 readme = "README.md"
-version = "0.2.0"
+version = "0.2.2"
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -19,6 +19,7 @@ pydantic-settings = "^2.3.4"
 pytest = "^8.2.2"
 toml-sort = "^0.23.1"
 types-dateparser = "^1.2.0.20240420"
+pi-conf = "^0.7.8.3"
 
 [tool.poetry.group.mongo.dependencies]
 pymongo = "^4.8.0"
