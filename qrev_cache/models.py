@@ -105,8 +105,10 @@ class MetaMixin:
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args)  # type: ignore
         self._metadata = kwargs.get("_metadata", {})
-
-
+    
+    @classmethod
+    def cast(cls, obj: T) -> "MetaMixin":
+        return cast(MetaMixin, obj)
 
 class MetadataCarrier:
     """A wrapper class that carries metadata along with a value."""

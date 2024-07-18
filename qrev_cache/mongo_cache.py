@@ -40,6 +40,23 @@ class Var:
     def __repr__(self):
         return self.__str__()
 
+    def resolve(self, context):
+        parts = self.var_name.split(".")
+        value = context
+        for part in parts:
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                value = value.get(part)
+            else:  # Object
+                try:
+                    value = getattr(value, part)
+                except AttributeError:
+                    raise MissingVariableError(
+                        f"Variable '{self.var_name}' not found in function arguments"
+                    )
+        return value
+
 
 class MongoCacheSettings(CacheSettings):
     uri: str = ""
@@ -196,11 +213,15 @@ class MongoCache(BaseCache):
 
         def substitute_var(value: Union[Var, Any]) -> Any:
             if isinstance(value, Var):
-                if value.var_name not in args_dict:
+                resolved = value.resolve(args_dict)
+                if resolved is None:
                     raise MissingVariableError(
-                        f"Variable '{value.var_name}' not found in function arguments"
+                        (
+                            f"Variable '{value.var_name}' not found in function arguments.\n"
+                            f"Available variables: {args_dict}"
+                        )
                     )
-                return args_dict[value.var_name]
+                return resolved
             elif isinstance(value, dict):
                 return {k: substitute_var(v) for k, v in value.items()}
             elif isinstance(value, list):
@@ -225,7 +246,7 @@ def create_mongo_cache_settings(
 
 
 def mongo_cache(
-        cache: Optional[MongoCache] = None,
+    cache: Optional[MongoCache] = None,
     settings: Optional[MongoCacheSettings] = None,
     uri: Optional[str] = None,
     database: Optional[str] = None,
