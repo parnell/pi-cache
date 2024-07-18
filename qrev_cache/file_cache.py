@@ -16,7 +16,7 @@ from qrev_cache.base_cache import (
 )
 
 
-class LocalCacheSettings(CacheSettings):
+class FileCacheSettings(CacheSettings):
     cache_dir: str | Path = Path("cache")
     expiration: Optional[str | int] = None
     key_parameters: Optional[list[str]] = None
@@ -26,12 +26,12 @@ class LocalCacheSettings(CacheSettings):
         return Path(v)
 
 
-class LocalCache(BaseCache):
-    def __init__(self, settings: Optional[LocalCacheSettings] = None):
-        self.settings = settings or LocalCacheSettings()
+class FileCache(BaseCache):
+    def __init__(self, settings: Optional[FileCacheSettings] = None):
+        self.settings = settings or FileCacheSettings()
         os.makedirs(self.settings.cache_dir, exist_ok=True)
 
-    def get(self, func_call: FuncCall[LocalCacheSettings]) -> Optional[CacheEntry]:
+    def get(self, func_call: FuncCall[FileCacheSettings]) -> Optional[CacheEntry]:
         key = self._generate_cache_key(func_call)
         cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
         if os.path.exists(cache_file):
@@ -39,20 +39,20 @@ class LocalCache(BaseCache):
                 return self.deserialize(f.read())
         return None
 
-    def set(self, func_call: FuncCall[LocalCacheSettings], entry: CacheEntry) -> None:
+    def set(self, func_call: FuncCall[FileCacheSettings], entry: CacheEntry) -> None:
         key = self._generate_cache_key(func_call)
         cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
         with open(cache_file, "w") as f:
             f.write(self.serialize(entry))
 
-    def exists(self, func_call: FuncCall[LocalCacheSettings]) -> bool:
+    def exists(self, func_call: FuncCall[FileCacheSettings]) -> bool:
         key = self._generate_cache_key(func_call)
         cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
         return os.path.exists(cache_file)
 
 
 def local_cache(
-    settings: Optional[LocalCacheSettings] = None,
+    settings: Optional[FileCacheSettings] = None,
     expiration: Optional[Union[str, int]] = None,
     key_parameters: Optional[list[str]] = None,
     time_check: Optional[TimeCheck] = None,
@@ -62,7 +62,7 @@ def local_cache(
     cache_only: Optional[bool] = None,
 ):
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
-        cache_settings = settings or LocalCacheSettings()
+        cache_settings = settings or FileCacheSettings()
 
         if expiration is not None:
             cache_settings.expiration = expiration
@@ -79,7 +79,7 @@ def local_cache(
         if cache_only is not None:
             cache_settings.cache_only = cache_only
 
-        cache_instance = LocalCache(settings=cache_settings)
+        cache_instance = FileCache(settings=cache_settings)
         return cache_decorator(cache_instance)(func)
 
     return decorator
