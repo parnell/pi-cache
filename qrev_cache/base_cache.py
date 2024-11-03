@@ -60,6 +60,8 @@ class CacheSettings(BaseSettings, Generic[T]):
 
 @dataclass
 class FuncCall(Generic[SettingsT]):
+    """Represents a function call with all necessary information to generate a cache key."""
+
     cache_instance: "BaseCache"
     settings: SettingsT
     func: Callable[..., Any]
@@ -385,11 +387,11 @@ def _return_obj(cache_entry: CacheEntry[T], settings: CacheSettings[T]) -> T:
     if not settings.return_metadata_as_member:
         return cache_entry.data
     if cache_entry.metadata.data_type and "builtins" in cache_entry.metadata.data_type:
-        if not settings.return_metadata_on_primitives:
-            return cache_entry.data
-        return (
-            cache_entry.data
-        )  # You might want to implement a way to attach metadata to primitives
+        if settings.return_metadata_on_primitives:
+            if isinstance(cache_entry.data, dict):
+                cache_entry.data["_metadata"] = cache_entry.metadata
+            return cache_entry.data # type: ignore
+        return cache_entry.data
     if isinstance(cache_entry.data, dict):
         cache_entry.data["_metadata"] = cache_entry.metadata
     else:

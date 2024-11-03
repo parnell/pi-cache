@@ -1,9 +1,7 @@
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import dateparser
 import pytest
-from dateparser.conf import Settings
 
 from qrev_cache.utils.time_utils import parse_date_string
 
