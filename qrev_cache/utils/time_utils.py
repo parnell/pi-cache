@@ -1,45 +1,99 @@
-from datetime import UTC, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+import re
+from datetime import datetime, timedelta, timezone
 
-import dateparser
-import pytest
-from dateparser.conf import Settings
+from dateutil.parser import parse
+from dateutil.relativedelta import relativedelta
 
 
 def parse_date_string(date_string: str, reference_time: datetime | None = None) -> datetime:
-    settings = Settings()
-    settings.TIMEZONE = "UTC"  # type: ignore
-    settings.RETURN_TIME_AS_PERIOD = False  # type: ignore
-    settings.PREFER_DATES_FROM = "future"  # type: ignore
-
-    original_tz = None
     if reference_time is None:
         reference_time = datetime.now(timezone.utc)
-    else:
-        # Store the original timezone
-        original_tz = reference_time.tzinfo
-        # Ensure reference_time is timezone-aware
-        reference_time = reference_time.astimezone(timezone.utc)
+    elif reference_time.tzinfo is None:
+        reference_time = reference_time.replace(tzinfo=timezone.utc)
 
-    settings.RELATIVE_BASE = reference_time  # type: ignore
+    date_string = date_string.lower().strip()
 
-    parsed_date = dateparser.parse(date_string, settings=settings)  # type: ignore
-    if parsed_date is None:
+    # Handle "now"
+    if date_string == "now":
+        return reference_time.astimezone(timezone.utc)
+
+    # Handle relative patterns with more units
+    match = re.match(
+        r"([\d.]+)\s*(second|seconds|sec|s|minute|minutes|min|m|hour|hours|h|day|days|d|week|weeks|w|month|months|year|years|y)s?$",
+        date_string,
+    )
+    if match:
+        number, unit = match.groups()
+        number = float(number)
+
+        result_time = reference_time
+        # Map units to relativedelta or timedelta arguments
+        if unit in ("second", "seconds", "sec", "s"):
+            result_time = reference_time + timedelta(seconds=number)
+        elif unit in ("minute", "minutes", "min", "m"):
+            result_time = reference_time + timedelta(minutes=number)
+        elif unit in ("hour", "hours", "h"):
+            result_time = reference_time + timedelta(hours=number)
+        elif unit in ("day", "days", "d"):
+            result_time = reference_time + timedelta(days=number)
+        elif unit in ("week", "weeks", "w"):
+            result_time = reference_time + timedelta(weeks=number)
+        elif unit in ("month", "months"):
+            result_time = reference_time + relativedelta(months=int(number))
+        elif unit in ("year", "years", "y"):
+            result_time = reference_time + relativedelta(years=int(number))
+        return result_time.astimezone(timezone.utc)
+
+    # Handle special cases
+    special_cases = {
+        "tomorrow": relativedelta(days=1),
+        "next week": relativedelta(weeks=1),
+        "next month": relativedelta(months=1),
+        "next year": relativedelta(years=1),
+    }
+
+    if date_string in special_cases:
+        return (reference_time + special_cases[date_string]).astimezone(timezone.utc)
+
+    # Try to parse dates with timezone abbreviations
+    tz_match = re.match(
+        r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+((?:pst|pdt|est|edt|cst|cdt|mst|mdt|ast|adt|utc|gmt))$",
+        date_string,
+    )
+    if tz_match:
+        date_part, tz = tz_match.groups()
+        # Map of timezone abbreviations to UTC offsets in hours
+        tz_offsets = {
+            "pst": -8,
+            "pdt": -7,
+            "mst": -7,
+            "mdt": -6,
+            "cst": -6,
+            "cdt": -5,
+            "est": -5,
+            "edt": -4,
+            "ast": -4,
+            "adt": -3,
+            "utc": 0,
+            "gmt": 0,
+        }
+
+        if tz in tz_offsets:
+            try:
+                # Parse the date part
+                local_time = datetime.strptime(date_part, "%Y-%m-%d %H:%M:%S")
+                # Convert to UTC using offset
+                utc_offset = timedelta(hours=tz_offsets[tz])
+                utc_time = local_time - utc_offset
+                return utc_time.replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+
+    # Standard parsing for everything else
+    try:
+        parsed_date = parse(date_string)
+        if parsed_date.tzinfo is None:
+            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+        return parsed_date.astimezone(timezone.utc)
+    except (ValueError, TypeError):
         raise ValueError(f"Unable to parse the date string: {date_string}")
-
-    # Ensure the result is timezone-aware
-    if parsed_date.tzinfo is None:
-        parsed_date = parsed_date.replace(tzinfo=timezone.utc)
-    else:
-        parsed_date = parsed_date.astimezone(timezone.utc)
-
-    # For certain relative date strings, set time to midnight in the original timezone
-    if date_string.lower() in ["tomorrow", "next week"]:
-        if original_tz:
-            parsed_date = parsed_date.astimezone(original_tz)
-            parsed_date = parsed_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            parsed_date = parsed_date.astimezone(timezone.utc)
-        else:
-            parsed_date = parsed_date.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    return parsed_date

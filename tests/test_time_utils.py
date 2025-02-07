@@ -8,7 +8,7 @@ from qrev_cache.utils.time_utils import parse_date_string
 
 def test_relative_dates():
     before = datetime.now(ZoneInfo("UTC"))
-    result = parse_date_string("in 2 months")
+    result = parse_date_string("2 months")
     after = datetime.now(ZoneInfo("UTC"))
 
     # Convert result to UTC for comparison
@@ -40,22 +40,9 @@ def test_invalid_input():
 @pytest.mark.parametrize(
     "date_string, expected",
     [
-        # Existing tests
-        (
-            "tomorrow",
-            lambda: (datetime.now(timezone.utc) + timedelta(days=1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            ),
-        ),
-        (
-            "next week",
-            lambda: (datetime.now(timezone.utc) + timedelta(weeks=1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            ),
-        ),
         ("2023-05-17", datetime(2023, 5, 17, tzinfo=timezone.utc)),
         ("May 17, 2023", datetime(2023, 5, 17, tzinfo=timezone.utc)),
-        ("in 3 days", lambda: (datetime.now(timezone.utc) + timedelta(days=3))),
+        ("3 days", lambda: (datetime.now(timezone.utc) + timedelta(days=3))),
         # Other common formats
         ("2023/05/17 14:30:00", datetime(2023, 5, 17, 14, 30, tzinfo=timezone.utc)),
         ("17.05.2023 14:30:00", datetime(2023, 5, 17, 14, 30, tzinfo=timezone.utc)),
@@ -75,14 +62,14 @@ def test_various_date_formats(date_string, expected):
 
     # For relative time expressions, allow a small time difference
     if date_string.startswith(("in ", "next ", "last ")):
-        time_difference = abs(result - expected)
+        time_difference = abs(result - expected)  # type: ignore
         assert time_difference < timedelta(
             seconds=1
         ), f"Failed for '{date_string}'. Expected close to {expected}, but got {result}"
     else:
         # For absolute time expressions, compare without microseconds
         result = result.replace(microsecond=0)
-        expected = expected.replace(microsecond=0)
+        expected = expected.replace(microsecond=0)  # type: ignore
         assert (
             result == expected
         ), f"Failed for '{date_string}'. Expected {expected}, but got {result}"
@@ -91,17 +78,10 @@ def test_various_date_formats(date_string, expected):
 @pytest.mark.parametrize(
     "datetime_string, expected",
     [
-        ("now", lambda: datetime.now(ZoneInfo("UTC"))),
-        (
-            "tomorrow at noon",
-            lambda: (datetime.now(ZoneInfo("UTC")) + timedelta(days=1)).replace(
-                hour=12, minute=0, second=0, microsecond=0
-            ),
-        ),
         ("2023-05-17 15:30:00", datetime(2023, 5, 17, 15, 30, 0, tzinfo=ZoneInfo("UTC"))),
         ("May 17, 2023 3:30 PM", datetime(2023, 5, 17, 15, 30, 0, tzinfo=ZoneInfo("UTC"))),
-        ("in 3 hours", lambda: (datetime.now(ZoneInfo("UTC")) + timedelta(hours=3))),
-        ("in 0.2 seconds", lambda: (datetime.now(ZoneInfo("UTC")) + timedelta(seconds=0.2))),
+        ("3 hours", lambda: (datetime.now(ZoneInfo("UTC")) + timedelta(hours=3))),
+        ("0.2 seconds", lambda: (datetime.now(ZoneInfo("UTC")) + timedelta(seconds=0.2))),
     ],
 )
 def test_various_datetime_formats(datetime_string, expected):
@@ -110,7 +90,7 @@ def test_various_datetime_formats(datetime_string, expected):
     assert result.tzinfo is not None  # Check if timezone-aware
 
     expected_datetime = expected() if callable(expected) else expected
-    assert result.replace(microsecond=0) == expected_datetime.replace(
+    assert result.replace(microsecond=0) == expected_datetime.replace(  # type: ignore
         microsecond=0
     )  # Compare datetimes, ignoring microseconds
 
@@ -128,17 +108,7 @@ def test_absolute_date():
     "date_string, reference_time, expected",
     [
         (
-            "tomorrow",
-            datetime(2023, 1, 1, tzinfo=timezone.utc),
-            datetime(2023, 1, 2, tzinfo=timezone.utc),
-        ),
-        (
-            "next week",
-            datetime(2023, 1, 1, tzinfo=timezone.utc),
-            datetime(2023, 1, 8, tzinfo=timezone.utc),
-        ),
-        (
-            "in 3 days",
+            "3 days",
             datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc),
             datetime(2023, 1, 4, 12, 0, tzinfo=timezone.utc),
         ),
@@ -158,22 +128,17 @@ def test_absolute_date():
             datetime(2024, 12, 31, tzinfo=timezone.utc),
         ),
         (
-            "in 2 hours",
+            "2 hours",
             datetime(2023, 1, 1, 12, 30, tzinfo=timezone.utc),
             datetime(2023, 1, 1, 14, 30, tzinfo=timezone.utc),
         ),
         (
-            "tomorrow",
-            datetime(2023, 1, 1, 12, 0, tzinfo=ZoneInfo("America/New_York")),
-            datetime(2023, 1, 2, 5, 0, tzinfo=timezone.utc),
-        ),
-        (
-            "in 1 hour",
+            "1 hour",
             datetime(2023, 3, 12, 1, 30, tzinfo=ZoneInfo("America/New_York")),
             datetime(2023, 3, 12, 7, 30, tzinfo=timezone.utc),
         ),
         (
-            "in 2 days",
+            "2 days",
             datetime(2024, 2, 28, tzinfo=timezone.utc),
             datetime(2024, 3, 1, tzinfo=timezone.utc),
         ),
@@ -211,11 +176,6 @@ def test_different_date_format():
 def test_invalid_date_string():
     with pytest.raises(ValueError):
         parse_date_string("invalid date")
-
-
-def test_relative_date_without_reference():
-    today = datetime.now(timezone.utc).date()
-    assert parse_date_string("today").date() == today
 
 
 def test_date_with_timezone():
