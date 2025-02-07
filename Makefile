@@ -1,14 +1,9 @@
-install::
-	poetry install
-
 test::
 	pytest -v tests
 
-format::
-	toml-sort pyproject.toml
-
 build:: format
-	poetry build
+	uv build
 
 publish:: build
-	poetry publish 
+	# Uncomment the following line to publish the package
+	# uv publish 
