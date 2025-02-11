@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pi-cache"
-version = "0.5.2"
+version = "0.5.3"
 description = "Easy Cache using local files, in memory, or MongoDB."
 readme = "README.md"
 license = "MIT"
