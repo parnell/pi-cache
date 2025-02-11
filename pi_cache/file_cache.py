@@ -38,11 +38,11 @@ class FileCache(BaseCache):
     @contextmanager
     def _file_lock(self, filepath: str | Path) -> Iterator[None]:
         """Provides exclusive file locking using fcntl."""
-        lock_path = str(filepath) + '.lock'
+        lock_path = str(filepath) + ".lock"
         lock_file = None
-        
+
         try:
-            lock_file = open(lock_path, 'w')
+            lock_file = open(lock_path, "w")
             # Use non-blocking to implement timeout
             start_time = time.time()
             while True:
@@ -54,7 +54,9 @@ class FileCache(BaseCache):
                         raise
 
                     if time.time() - start_time > self.settings.lock_timeout:
-                        raise TimeoutError(f"Could not acquire lock for {filepath} after {self.settings.lock_timeout}s")
+                        raise TimeoutError(
+                            f"Could not acquire lock for {filepath} after {self.settings.lock_timeout}s"
+                        )
                     time.sleep(0.1)
             yield
         finally:
@@ -69,10 +71,10 @@ class FileCache(BaseCache):
     def get(self, func_call: FuncCall[FileCacheSettings]) -> Optional[CacheEntry]:
         key = self._generate_cache_key(func_call)
         cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
-        
+
         if not os.path.exists(cache_file):
             return None
-            
+
         with self._file_lock(cache_file):
             try:
                 with open(cache_file, "r") as f:
@@ -88,13 +90,13 @@ class FileCache(BaseCache):
     def set(self, func_call: FuncCall[FileCacheSettings], entry: CacheEntry) -> None:
         key = self._generate_cache_key(func_call)
         cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
-        
+
         # Ensure the directory exists (in case it was deleted)
         os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        
+
         with self._file_lock(cache_file):
             # Write to temporary file first
-            temp_file = cache_file + '.tmp'
+            temp_file = cache_file + ".tmp"
             try:
                 with open(temp_file, "w") as f:
                     f.write(self.serialize(entry))
@@ -109,7 +111,7 @@ class FileCache(BaseCache):
     def exists(self, func_call: FuncCall[FileCacheSettings]) -> bool:
         key = self._generate_cache_key(func_call)
         cache_file = os.path.join(func_call.settings.cache_dir, f"cache_{key}.json")
-        
+
         with self._file_lock(cache_file):
             return os.path.exists(cache_file)
 
@@ -128,7 +130,7 @@ def file_cache(
 ):
     """
     Decorator that caches function results in files.
-    
+
     Args:
         settings: Cache settings
         expiration: Cache expiration time
@@ -141,6 +143,7 @@ def file_cache(
         lock_timeout: Timeout for file locks
         ignore_self: If True, ignores the self parameter when generating cache key for class methods
     """
+
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         cache_settings = settings or FileCacheSettings()
 

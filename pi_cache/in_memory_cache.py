@@ -26,11 +26,13 @@ def in_memory_cache(
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
     Decorator that caches function results in memory.
-    
+
     Args:
         ignore_self: If True, ignores the self parameter when generating cache key for class methods
     """
+
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         cache_instance = InMemoryCache()
         return cache_decorator(cache_instance, ignore_self=ignore_self)(func)
+
     return decorator

@@ -1,37 +1,22 @@
-import functools
-import hashlib
-import importlib
-import inspect
-import json
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
     Generic,
-    Hashable,
     Optional,
-    ParamSpec,
-    Type,
     TypeVar,
-    Union,
     cast,
-    overload,
 )
 
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings
 
-from pi_cache.utils.time_utils import parse_date_string
 
 if TYPE_CHECKING:
     from pi_cache.base_cache import FuncCall
 
 T = TypeVar("T")
+
 
 class ModelMetadata(BaseModel):
     """Metadata associated with a cached item."""
@@ -67,11 +52,11 @@ class ModelMetadata(BaseModel):
     def from_flat_dict(cls, data: dict[str, Any]) -> "ModelMetadata":
         return cls(**data)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ModelMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> "ModelMetadata":
         return cls(**data)
 
 
@@ -97,6 +82,7 @@ class TimeCheck(StrEnum):
     LAST_UPDATE = "last_update"
     EXPIRES_AT = "expires_at"
 
+
 class MetaMixin:
     """Mixin class to add metadata to a class. primarily for errors"""
 
@@ -105,10 +91,11 @@ class MetaMixin:
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args)  # type: ignore
         self._metadata = kwargs.get("_metadata", {})
-    
+
     @classmethod
     def cast(cls, obj: T) -> "MetaMixin":
         return cast(MetaMixin, obj)
+
 
 class MetadataCarrier:
     """A wrapper class that carries metadata along with a value."""

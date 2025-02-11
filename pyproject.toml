@@ -33,4 +33,4 @@ ignore_missing_imports = true
 filterwarnings = ["ignore::pytest.PytestAssertRewriteWarning"]
 
 [tool.ruff]
-line-length = 88
+line-length = 100

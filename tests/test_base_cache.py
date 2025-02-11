@@ -1,6 +1,5 @@
-import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Hashable, Optional, cast, Union
+from typing import Optional, cast, Union
 import hashlib
 
 import pytest
@@ -34,7 +33,7 @@ class MockCache(BaseCache):
         self._storage = {}
         self.use_flat_metadata = False
 
-    def _generate_cache_key(self, func_call: Union[FuncCall, str]) -> str: # type: ignore
+    def _generate_cache_key(self, func_call: Union[FuncCall, str]) -> str:  # type: ignore
         if isinstance(func_call, str):
             return func_call  # Use string directly as key
         # Use the proper key generation from BaseCache
@@ -61,6 +60,7 @@ class MockCache(BaseCache):
 @pytest.fixture
 def cache():
     return MockCache()
+
 
 class TestBaseCache:
     def test_set_and_get(self, cache):
@@ -114,7 +114,6 @@ class TestBaseCache:
 
         assert deserialized.data == data
         assert deserialized.metadata == entry.metadata
-
 
     def test_cache_validation(self, cache):
         key = "test_key"
@@ -194,7 +193,7 @@ class TestBaseCache:
             return T(x=x)
 
         r = cached_function(3)
-        assert r._metadata # type: ignore
+        assert r._metadata  # type: ignore
         assert type(r) == T
 
         assert r.x == 3
@@ -247,6 +246,7 @@ class TestBaseCache:
     #     assert isinstance(decoded["datetime"], datetime)
     #     assert isinstance(decoded["sample"], SampleData)
     #     assert decoded["sample"].value == "test"
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

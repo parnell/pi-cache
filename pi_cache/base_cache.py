@@ -6,7 +6,6 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from typing import (
     Any,
     Callable,
@@ -57,7 +56,8 @@ class CacheSettings(BaseSettings, Generic[T]):
         default=False, description="Only use the cache, do not call the function."
     )
     ignore_self: bool = Field(
-        default=False, description="Ignore self parameter when generating cache key for class methods"
+        default=False,
+        description="Ignore self parameter when generating cache key for class methods",
     )
 
 
@@ -74,7 +74,7 @@ class FuncCall(Generic[SettingsT]):
     ignore_self: bool = False
     bound_entity: Optional[type | object] = None
     is_instance: bool = False
-    
+
     def __post_init__(self):
         # ignore_self from decorator takes precedence over settings
         if not self.ignore_self:
@@ -111,7 +111,10 @@ class TypeRegistry:
 
     @classmethod
     def register_pydantic_model(
-        cls, model_class: Type[BaseModel], custom_serializer=None, custom_deserializer=None
+        cls,
+        model_class: Type[BaseModel],
+        custom_serializer=None,
+        custom_deserializer=None,
     ):
         type_name = f"{model_class.__module__}.{model_class.__name__}"
 
@@ -224,10 +227,7 @@ class BaseCache(ABC):
 
             # Convert old format to new format if needed
             if "metadata" in data and "_metadata" not in data:
-                data = {
-                    "_metadata": data["metadata"],
-                    "data": data["data"]
-                }
+                data = {"_metadata": data["metadata"], "data": data["data"]}
             return CacheEntry.model_validate(data)
 
         try:
@@ -237,7 +237,7 @@ class BaseCache(ABC):
                 if "metadata" in decoded and "_metadata" not in decoded:
                     decoded = {
                         "_metadata": decoded["metadata"],
-                        "data": decoded["data"]
+                        "data": decoded["data"],
                     }
                 ce = CacheEntry.model_validate(decoded)
             else:
@@ -319,8 +319,12 @@ class BaseCache(ABC):
             key_content["kwargs"] = str(filtered_kwargs)
         else:
             # For all other cases, include all arguments except self when ignore_self is True
-            key_content["args"] = str(tuple(make_hashable(arg, not ignore_self) for arg in args[start_index:]))
-            key_content["kwargs"] = str({k: make_hashable(v, not ignore_self) for k, v in kwargs.items()})
+            key_content["args"] = str(
+                tuple(make_hashable(arg, not ignore_self) for arg in args[start_index:])
+            )
+            key_content["kwargs"] = str(
+                {k: make_hashable(v, not ignore_self) for k, v in kwargs.items()}
+            )
 
         return key_content
 
@@ -362,7 +366,7 @@ def cast_exception(e: E, exception_type: Type[E] | None = None) -> Union[E, Meta
 def make_hashable(obj: Any, include_id: bool = True) -> Hashable:
     """
     Convert an object into a hashable type for cache key generation.
-    
+
     Args:
         obj: The object to make hashable
         include_id: If True, includes object id for class instances
@@ -416,7 +420,7 @@ def _return_obj(cache_entry: CacheEntry[T], settings: CacheSettings[T]) -> T:
         if settings.return_metadata_on_primitives:
             if isinstance(cache_entry.data, dict):
                 cache_entry.data["_metadata"] = cache_entry.metadata
-            return cache_entry.data # type: ignore
+            return cache_entry.data  # type: ignore
         return cache_entry.data
     if isinstance(cache_entry.data, dict):
         cache_entry.data["_metadata"] = cache_entry.metadata
@@ -440,21 +444,22 @@ def _find_bound_entity(func: Callable, *args) -> tuple[type | object | None, boo
 def cache_decorator(cache_instance: BaseCache, ignore_self: bool = False):
     """
     Decorator that caches function results.
-    
+
     Args:
         cache_instance: The cache instance to use
         ignore_self: If True, ignores the self parameter when generating cache key for class methods
     """
+
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             bound_entity, is_instance = _find_bound_entity(func, *args)
-            
+
             # If ignore_self is True and this is an instance method,
             # we should skip self in both the cache key and metadata
             start_index = 1 if (bound_entity is not None and ignore_self) else 0
             metadata_args = args[start_index:]  # Skip self in metadata if needed
-            
+
             func_call = FuncCall(
                 cache_instance=cache_instance,
                 settings=cache_instance.settings,
@@ -466,7 +471,7 @@ def cache_decorator(cache_instance: BaseCache, ignore_self: bool = False):
                 bound_entity=bound_entity,
                 is_instance=is_instance,
             )
-            
+
             cache_entry = cache_instance.get(func_call)
             if cache_entry is not None and is_cache_valid(
                 cache_entry.metadata, datetime.now(UTC), cache_instance.settings
@@ -518,6 +523,7 @@ def cache_decorator(cache_instance: BaseCache, ignore_self: bool = False):
             return _return_obj(cache_entry, cache_instance.settings)
 
         return wrapper
+
     return decorator
 
 

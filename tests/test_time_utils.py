@@ -18,9 +18,9 @@ def test_relative_dates():
     expected_min = before + timedelta(days=59)  # About 2 months
     expected_max = after + timedelta(days=62)  # A bit over 2 months
 
-    assert (
-        expected_min <= result_utc <= expected_max
-    ), f"Expected result between {expected_min} and {expected_max}, but got {result_utc}"
+    assert expected_min <= result_utc <= expected_max, (
+        f"Expected result between {expected_min} and {expected_max}, but got {result_utc}"
+    )
 
     # Also check that the result is in the future
     assert result_utc > before, f"Expected result to be after {before}, but got {result_utc}"
@@ -63,16 +63,16 @@ def test_various_date_formats(date_string, expected):
     # For relative time expressions, allow a small time difference
     if date_string.startswith(("in ", "next ", "last ")):
         time_difference = abs(result - expected)  # type: ignore
-        assert time_difference < timedelta(
-            seconds=1
-        ), f"Failed for '{date_string}'. Expected close to {expected}, but got {result}"
+        assert time_difference < timedelta(seconds=1), (
+            f"Failed for '{date_string}'. Expected close to {expected}, but got {result}"
+        )
     else:
         # For absolute time expressions, compare without microseconds
         result = result.replace(microsecond=0)
         expected = expected.replace(microsecond=0)  # type: ignore
-        assert (
-            result == expected
-        ), f"Failed for '{date_string}'. Expected {expected}, but got {result}"
+        assert result == expected, (
+            f"Failed for '{date_string}'. Expected {expected}, but got {result}"
+        )
 
 
 @pytest.mark.parametrize(

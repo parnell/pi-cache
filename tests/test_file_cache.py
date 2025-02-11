@@ -1,4 +1,3 @@
-
 import pytest
 from pydantic import BaseModel
 
@@ -21,10 +20,12 @@ def cache(tmp_path):
     lc._generate_cache_key = _generate_cache_key
     return lc
 
+
 class SimpleKey:
     def __init__(self, key: str, cache_instance: FileCache):
         self.key = key
         self.settings = cache_instance.settings
+
 
 class TestLocalCache:
     def test_set_and_get(self, cache):
@@ -84,11 +85,11 @@ class TestLocalCache:
 
         data = test_func()
         assert data.value == "test_value"
-        assert data._metadata.from_cache is False # type: ignore
+        assert data._metadata.from_cache is False  # type: ignore
 
         data = test_func()
         assert data.value == "test_value"
-        assert data._metadata.from_cache is True # type: ignore
+        assert data._metadata.from_cache is True  # type: ignore
 
 
 if __name__ == "__main__":
