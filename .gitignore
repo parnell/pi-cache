@@ -38,6 +38,7 @@ parts
 sdist
 var
 cache
+.ruff_cache
 
 ## Installer logs
 pip-log.txt

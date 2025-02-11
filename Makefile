@@ -1,7 +1,10 @@
 test::
 	pytest -v tests
 
-build::
+format::
+	pre-commit
+
+build:: format
 	uv build
 
 publish:: build
