@@ -124,7 +124,23 @@ def file_cache(
     return_metadata_on_primitives: Optional[bool] = None,
     cache_only: Optional[bool] = None,
     lock_timeout: Optional[float] = None,
+    ignore_self: bool = False,
 ):
+    """
+    Decorator that caches function results in files.
+    
+    Args:
+        settings: Cache settings
+        expiration: Cache expiration time
+        key_parameters: List of parameter names to use for cache key
+        time_check: How to check if cache is expired
+        cache_dir: Directory to store cache files
+        return_metadata_as_member: Whether to return metadata as member
+        return_metadata_on_primitives: Whether to return metadata for primitives
+        cache_only: Whether to only use cache
+        lock_timeout: Timeout for file locks
+        ignore_self: If True, ignores the self parameter when generating cache key for class methods
+    """
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         cache_settings = settings or FileCacheSettings()
 
@@ -146,6 +162,6 @@ def file_cache(
             cache_settings.lock_timeout = lock_timeout
 
         cache_instance = FileCache(settings=cache_settings)
-        return cache_decorator(cache_instance)(func)
+        return cache_decorator(cache_instance, ignore_self=ignore_self)(func)
 
     return decorator

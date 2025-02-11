@@ -315,12 +315,12 @@ class BaseCache(ABC):
                     elif arg_name in kwargs:
                         filtered_kwargs[arg_name] = make_hashable(kwargs[arg_name], not ignore_self)
 
-            key_content["args"] = tuple(filtered_args)
-            key_content["kwargs"] = filtered_kwargs
+            key_content["args"] = str(tuple(filtered_args))
+            key_content["kwargs"] = str(filtered_kwargs)
         else:
             # For all other cases, include all arguments except self when ignore_self is True
-            key_content["args"] = tuple(make_hashable(arg, not ignore_self) for arg in args[start_index:])
-            key_content["kwargs"] = {k: make_hashable(v, not ignore_self) for k, v in kwargs.items()}
+            key_content["args"] = str(tuple(make_hashable(arg, not ignore_self) for arg in args[start_index:]))
+            key_content["kwargs"] = str({k: make_hashable(v, not ignore_self) for k, v in kwargs.items()})
 
         return key_content
 

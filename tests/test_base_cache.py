@@ -34,7 +34,7 @@ class MockCache(BaseCache):
         self._storage = {}
         self.use_flat_metadata = False
 
-    def _generate_cache_key(self, func_call: Union[FuncCall, str]) -> str:
+    def _generate_cache_key(self, func_call: Union[FuncCall, str]) -> str: # type: ignore
         if isinstance(func_call, str):
             return func_call  # Use string directly as key
         # Use the proper key generation from BaseCache

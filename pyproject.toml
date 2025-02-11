@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pi-cache"
-version = "0.5.3"
+version = "0.5.4"
 description = "Easy Cache using local files, in memory, or MongoDB."
 readme = "README.md"
 license = "MIT"
@@ -31,3 +31,6 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::pytest.PytestAssertRewriteWarning"]
+
+[tool.ruff]
+line-length = 88
