@@ -56,6 +56,9 @@ class CacheSettings(BaseSettings, Generic[T]):
     cache_only: bool = Field(
         default=False, description="Only use the cache, do not call the function."
     )
+    ignore_self: bool = Field(
+        default=False, description="Ignore self parameter when generating cache key for class methods"
+    )
 
 
 @dataclass
@@ -71,6 +74,11 @@ class FuncCall(Generic[SettingsT]):
     ignore_self: bool = False
     bound_entity: Optional[type | object] = None
     is_instance: bool = False
+    
+    def __post_init__(self):
+        # ignore_self from decorator takes precedence over settings
+        if not self.ignore_self:
+            self.ignore_self = self.settings.ignore_self
 
 
 class TypeRegistry:
@@ -279,45 +287,40 @@ class BaseCache(ABC):
         args: tuple[Any, ...] = func_call.args
         kwargs: dict[str, Any] = func_call.kwargs
         key_parameters: Optional[list[str]] = func_call.key_parameters
-        ignore_self: bool = func_call.ignore_self
+        bound_entity = func_call.bound_entity
+        ignore_self = func_call.ignore_self
 
-        # Get the function's signature
-        sig = inspect.signature(func)
+        # Base key content with function's qualified name
+        key_content = {
+            "func_name": func.__qualname__,
+        }
 
-        # Check if the first parameter is 'self'
-        is_self = False if not ignore_self else list(sig.parameters.keys())[0] == "self"
+        # If this is an instance method and ignore_self is True,
+        # we should skip the first argument (self) in all cases
+        start_index = 1 if (bound_entity is not None and ignore_self) else 0
 
+        # Handle parameters
         if key_parameters:
             filtered_args = []
             filtered_kwargs = {}
             arg_spec = inspect.getfullargspec(func)
-            arg_names = arg_spec.args
+            # Always skip 'self' for instance methods when ignore_self is True
+            arg_names = arg_spec.args[start_index:]
 
-            # Skip 'self' if it's a method
-            start_index = 1 if is_self else 0
-
-            for i, arg_name in enumerate(arg_names[start_index:], start=start_index):
+            # Process only the arguments that should be part of the key
+            for i, arg_name in enumerate(arg_names):
                 if arg_name in key_parameters:
-                    if i < len(args):
-                        filtered_args.append(make_hashable(args[i]))
+                    if i < len(args[start_index:]):
+                        filtered_args.append(make_hashable(args[i + start_index], not ignore_self))
                     elif arg_name in kwargs:
-                        filtered_kwargs[arg_name] = make_hashable(kwargs[arg_name])
-            for kw, value in kwargs.items():
-                if kw in key_parameters:
-                    filtered_kwargs[kw] = make_hashable(value)
-            key_content = {
-                "func_name": func.__name__,
-                "args": tuple(filtered_args),
-                "kwargs": filtered_kwargs,
-            }
+                        filtered_kwargs[arg_name] = make_hashable(kwargs[arg_name], not ignore_self)
+
+            key_content["args"] = tuple(filtered_args)
+            key_content["kwargs"] = filtered_kwargs
         else:
-            # Skip 'self' if it's a method
-            args_to_hash = args[1:] if is_self else args
-            key_content = {
-                "func_name": func.__name__,
-                "args": tuple(make_hashable(arg) for arg in args_to_hash),
-                "kwargs": {k: make_hashable(v) for k, v in kwargs.items()},
-            }
+            # For all other cases, include all arguments except self when ignore_self is True
+            key_content["args"] = tuple(make_hashable(arg, not ignore_self) for arg in args[start_index:])
+            key_content["kwargs"] = {k: make_hashable(v, not ignore_self) for k, v in kwargs.items()}
 
         return key_content
 
@@ -356,14 +359,28 @@ def cast_exception(e: E, exception_type: Type[E] | None = None) -> Union[E, Meta
     return cast(Union[exception_type, MetaMixin], e)  # type: ignore
 
 
-def make_hashable(item: Any) -> Hashable:
-    if isinstance(item, dict):
-        return frozenset((k, make_hashable(v)) for k, v in item.items())
-    elif isinstance(item, (list, set)):
-        return tuple(make_hashable(i) for i in item)
-    elif hasattr(item, "__iter__") and not isinstance(item, (str, bytes)):
-        return tuple(make_hashable(i) for i in item)
-    return item
+def make_hashable(obj: Any, include_id: bool = True) -> Hashable:
+    """
+    Convert an object into a hashable type for cache key generation.
+    
+    Args:
+        obj: The object to make hashable
+        include_id: If True, includes object id for class instances
+    """
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    if isinstance(obj, (list, tuple)):
+        return tuple(make_hashable(x, include_id) for x in obj)
+    if isinstance(obj, dict):
+        return tuple(sorted((k, make_hashable(v, include_id)) for k, v in obj.items()))
+    if isinstance(obj, type):
+        # For class types, use the qualified name
+        return f"{obj.__module__}.{obj.__qualname__}"
+    if hasattr(obj, "__class__"):
+        # For class instances, include id when needed
+        class_name = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
+        return f"{class_name}#{id(obj)}" if include_id else class_name
+    return str(obj)
 
 
 def is_cache_valid(
@@ -420,22 +437,43 @@ def _find_bound_entity(func: Callable, *args) -> tuple[type | object | None, boo
     return None, False
 
 
-def cache_decorator(cache_instance: BaseCache):
-
+def cache_decorator(cache_instance: BaseCache, ignore_self: bool = False):
+    """
+    Decorator that caches function results.
+    
+    Args:
+        cache_instance: The cache instance to use
+        ignore_self: If True, ignores the self parameter when generating cache key for class methods
+    """
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            settings = cache_instance.settings
-            func_call = cache_instance._create_func_call(
-                cache_instance, settings, func, *args, **kwargs
+            bound_entity, is_instance = _find_bound_entity(func, *args)
+            
+            # If ignore_self is True and this is an instance method,
+            # we should skip self in both the cache key and metadata
+            start_index = 1 if (bound_entity is not None and ignore_self) else 0
+            metadata_args = args[start_index:]  # Skip self in metadata if needed
+            
+            func_call = FuncCall(
+                cache_instance=cache_instance,
+                settings=cache_instance.settings,
+                func=func,
+                args=args,  # Keep original args for function call
+                kwargs=kwargs,
+                key_parameters=cache_instance.settings.key_parameters,
+                ignore_self=ignore_self,
+                bound_entity=bound_entity,
+                is_instance=is_instance,
             )
+            
             cache_entry = cache_instance.get(func_call)
             if cache_entry is not None and is_cache_valid(
-                cache_entry.metadata, datetime.now(UTC), settings
+                cache_entry.metadata, datetime.now(UTC), cache_instance.settings
             ):
                 cache_entry.metadata.from_cache = True
-                return _return_obj(cache_entry, settings)
-            if settings.cache_only:
+                return _return_obj(cache_entry, cache_instance.settings)
+            if cache_instance.settings.cache_only:
                 raise CacheMissError(
                     func_call,
                     f"Cache miss for {func.__qualname__} args: {args}, kwargs: {kwargs}",
@@ -457,19 +495,19 @@ def cache_decorator(cache_instance: BaseCache):
                 creation_timestamp=current_time,
                 last_update_timestamp=current_time,
                 expires_at=(
-                    parse_date_string(settings.expiration, current_time)
-                    if isinstance(settings.expiration, str)
+                    parse_date_string(cache_instance.settings.expiration, current_time)
+                    if isinstance(cache_instance.settings.expiration, str)
                     else (
-                        current_time + timedelta(seconds=settings.expiration)
-                        if settings.expiration
+                        current_time + timedelta(seconds=cache_instance.settings.expiration)
+                        if cache_instance.settings.expiration
                         else None
                     )
                 ),
-                args=args,
+                args=metadata_args,  # Use filtered args for metadata
                 kwargs=kwargs,
                 from_cache=False,
                 data_type=BaseCache._qualified_name(result),
-                is_flat_data=settings.is_flat_data,
+                is_flat_data=cache_instance.settings.is_flat_data,
             )
             cache_entry = CacheEntry(_metadata=metadata, data=result)
             cache_instance.set(func_call, cache_entry)
@@ -477,10 +515,9 @@ def cache_decorator(cache_instance: BaseCache):
             if exception:
                 setattr(result, "_metadata", metadata)
                 raise exception
-            return _return_obj(cache_entry, settings)
+            return _return_obj(cache_entry, cache_instance.settings)
 
         return wrapper
-
     return decorator
 
 

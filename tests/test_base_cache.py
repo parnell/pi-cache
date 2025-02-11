@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Hashable, Optional, cast
+from typing import Any, Hashable, Optional, cast, Union
+import hashlib
 
 import pytest
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from pi_cache.base_cache import (
     custom_decoder,
     custom_encoder,
     is_cache_valid,
+    make_hashable,
 )
 from pi_cache.models import MetadataCarrier, MetaMixin
 from tests.conftest import create_cache_entry
@@ -27,26 +29,33 @@ class SampleData(BaseModel):
 
 
 class MockCache(BaseCache):
-    def __init__(self):
+    def __init__(self, settings: Optional[CacheSettings] = None):
+        super().__init__(settings)
         self._storage = {}
         self.use_flat_metadata = False
-        self.settings = CacheSettings()
 
-    def get(self, func_call: FuncCall) -> Optional[CacheEntry]:
+    def _generate_cache_key(self, func_call: Union[FuncCall, str]) -> str:
+        if isinstance(func_call, str):
+            return func_call  # Use string directly as key
+        # Use the proper key generation from BaseCache
+        key_content = self._generate_key_content(func_call)
+        # Convert all values to hashable types
+        hashable_content = make_hashable(key_content)
+        # Convert to a stable string representation
+        key_str = str(hashable_content)
+        return hashlib.sha256(key_str.encode()).hexdigest()
+
+    def get(self, func_call: Union[FuncCall, str]) -> Optional[CacheEntry]:
         key = self._generate_cache_key(func_call)
         return self._storage.get(key)
 
-    def set(self, func_call: FuncCall, entry: CacheEntry) -> None:
+    def set(self, func_call: Union[FuncCall, str], entry: CacheEntry) -> None:
         key = self._generate_cache_key(func_call)
         self._storage[key] = entry
 
-    def exists(self, func_call: FuncCall) -> bool:
+    def exists(self, func_call: Union[FuncCall, str]) -> bool:
         key = self._generate_cache_key(func_call)
         return key in self._storage
-
-    @classmethod
-    def _generate_cache_key(cls, func_call: FuncCall) -> str:
-        return str(func_call)
 
 
 @pytest.fixture
