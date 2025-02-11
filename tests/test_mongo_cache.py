@@ -9,7 +9,7 @@ from pydantic import BaseModel
 try:
     from pymongo import MongoClient
 
-    from qrev_cache import MongoCache, MongoCacheSettings, Var, mongo_cache
+    from pi_cache import MongoCache, MongoCacheSettings, Var, mongo_cache
 
     PYMONGO_AVAILABLE = True
 except ImportError:

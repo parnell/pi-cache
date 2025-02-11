@@ -1,6 +1,6 @@
 from typing import Optional
 
-from qrev_cache.base_cache import BaseCache, CacheEntry, FuncCall
+from pi_cache.base_cache import BaseCache, CacheEntry, FuncCall
 
 
 class InMemoryCache(BaseCache):

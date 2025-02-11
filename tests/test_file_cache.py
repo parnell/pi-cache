@@ -2,8 +2,8 @@
 import pytest
 from pydantic import BaseModel
 
-from qrev_cache.base_cache import FuncCall
-from qrev_cache.file_cache import FileCache, FileCacheSettings, local_cache
+from pi_cache.base_cache import FuncCall
+from pi_cache.file_cache import FileCache, FileCacheSettings, file_cache
 from tests.conftest import create_cache_entry
 
 
@@ -78,7 +78,7 @@ class TestLocalCache:
         assert (tmp_path / f"cache_{key}.json").exists()
 
     def test_local_cache_decorator(self, tmp_path):
-        @local_cache(cache_dir=tmp_path)
+        @file_cache(cache_dir=tmp_path)
         def test_func():
             return SampleData(value="test_value")
 

@@ -5,7 +5,7 @@ from typing import Any, Hashable, Optional, cast
 import pytest
 from pydantic import BaseModel
 
-from qrev_cache.base_cache import (
+from pi_cache.base_cache import (
     BaseCache,
     CacheEntry,
     CacheSettings,
@@ -18,7 +18,7 @@ from qrev_cache.base_cache import (
     custom_encoder,
     is_cache_valid,
 )
-from qrev_cache.models import MetadataCarrier, MetaMixin
+from pi_cache.models import MetadataCarrier, MetaMixin
 from tests.conftest import create_cache_entry
 
 

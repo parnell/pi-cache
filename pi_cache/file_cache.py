@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 from pydantic import field_validator
 
-from qrev_cache.base_cache import (
+from pi_cache.base_cache import (
     BaseCache,
     CacheEntry,
     CacheSettings,
@@ -114,7 +114,7 @@ class FileCache(BaseCache):
             return os.path.exists(cache_file)
 
 
-def local_cache(
+def file_cache(
     settings: Optional[FileCacheSettings] = None,
     expiration: Optional[Union[str, int]] = None,
     key_parameters: Optional[list[str]] = None,

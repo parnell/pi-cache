@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from qrev_cache.utils.time_utils import parse_date_string
+from pi_cache.utils.time_utils import parse_date_string
 
 
 def test_relative_dates():

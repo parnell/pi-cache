@@ -1,8 +1,8 @@
 import importlib.util
 
-from qrev_cache.base_cache import BaseCache, BaseSettings
-from qrev_cache.file_cache import FileCache, FileCacheSettings, local_cache
-from qrev_cache.models import MetaMixin, ModelMetadata, TimeCheck
+from pi_cache.base_cache import BaseCache, BaseSettings
+from pi_cache.file_cache import FileCache, FileCacheSettings, file_cache
+from pi_cache.models import MetaMixin, ModelMetadata, TimeCheck
 
 __all__ = [
     "BaseCache",
@@ -11,21 +11,21 @@ __all__ = [
     "TimeCheck",
     "FileCache",
     "FileCacheSettings",
-    "local_cache",
+    "file_cache",
     "MetaMixin",
 ]
 
 if importlib.util.find_spec("pymongo"):
-    from qrev_cache.mongo_cache import (
+    from pi_cache.mongo_cache import (
         MongoCache as MongoCache,
     )
-    from qrev_cache.mongo_cache import (
+    from pi_cache.mongo_cache import (
         MongoCacheSettings as MongoCacheSettings,
     )
-    from qrev_cache.mongo_cache import (
+    from pi_cache.mongo_cache import (
         Var as Var,
     )
-    from qrev_cache.mongo_cache import (
+    from pi_cache.mongo_cache import (
         mongo_cache as mongo_cache,
     )
 

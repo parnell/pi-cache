@@ -25,14 +25,14 @@ from typing import (
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
-from qrev_cache.models import (
+from pi_cache.models import (
     CacheEntry,
     CacheMissError,
     MetaMixin,
     ModelMetadata,
     TimeCheck,
 )
-from qrev_cache.utils.time_utils import parse_date_string
+from pi_cache.utils.time_utils import parse_date_string
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -115,7 +115,7 @@ class TypeRegistry:
             def serialize_pydantic(obj: BaseModel):
                 return {
                     "__pydantic_model__": type_name,
-                    "__data__": obj.model_dump(mode="json"),
+                    "__data__": obj.model_dump(),
                 }
 
         if custom_deserializer:
@@ -124,16 +124,16 @@ class TypeRegistry:
 
             @cls.register_deserializer(type_name)
             def deserialize_pydantic(data: Dict[str, Any]):
-                return model_class(**data["__data__"])
+                return model_class.model_validate(data["__data__"])
 
 
 def custom_encoder(obj: Any, only_pydantic_data: bool = False) -> Any:
     if isinstance(obj, datetime):
         return serialize_datetime(obj)
     if isinstance(obj, ModelMetadata):
-        return obj.model_dump(mode="json")
+        return obj.model_dump()
     if isinstance(obj, CacheEntry):
-        return obj.model_dump(mode="json", by_alias=True)
+        return obj.model_dump()
     if isinstance(obj, BaseModel):
         if not TypeRegistry.is_registered(type(obj)):
             TypeRegistry.register_pydantic_model(type(obj))
@@ -152,7 +152,7 @@ def custom_encoder(obj: Any, only_pydantic_data: bool = False) -> Any:
 def custom_decoder(dct: Any) -> Any:
     if isinstance(dct, dict):
         if "__model_metadata__" in dct:
-            return ModelMetadata.from_dict(dct["data"])
+            return ModelMetadata.model_validate(dct["data"])
         if "__datetime__" in dct:
             return datetime.fromisoformat(dct["__datetime__"])
         if "__pydantic_model__" in dct and "__data__" in dct:
@@ -164,7 +164,7 @@ def custom_decoder(dct: Any) -> Any:
             module_name, class_name = type_name.rsplit(".", 1)
             module = importlib.import_module(module_name)
             model_class = getattr(module, class_name)
-            return model_class(**dct["__data__"])
+            return model_class.model_validate(dct["__data__"])
         return {k: custom_decoder(v) for k, v in dct.items()}
     if isinstance(dct, list):
         return [custom_decoder(item) for item in dct]
@@ -194,18 +194,17 @@ class BaseCache(ABC):
     def _dump_cache_entry(cls, entry: CacheEntry, settings: CacheSettings) -> Dict[str, Any]:
         if settings.is_flat_data:
             d = custom_encoder(entry.data, only_pydantic_data=True)
-            d["_metadata"] = entry.metadata.model_dump(mode="json")
+            d["_metadata"] = entry.metadata.model_dump()
             return d
 
-        return entry.model_dump(mode="json")
+        return entry.model_dump()
 
     def deserialize(self, data: str | dict) -> CacheEntry:
-        ## TODO: Need to clean up and make serializing/deserializing more consistent
         if isinstance(data, dict):
             if self.settings.is_flat_data:
                 meta = data.pop("_metadata", None)
                 if meta:
-                    metadata = ModelMetadata.from_dict(meta)
+                    metadata = ModelMetadata.model_validate(meta)
                 else:
                     metadata = ModelMetadata(creation_timestamp=None)
                 if self.settings.force_data_type:
@@ -215,16 +214,26 @@ class BaseCache(ABC):
                 deserialized_data = self._deserialize_data(data, metadata.data_type)
                 return CacheEntry(_metadata=metadata, data=deserialized_data)
 
-            ce = CacheEntry(**data)
-            deserialized_data = self._deserialize_data(ce.data, ce.metadata.data_type)
-            ce.data = deserialized_data
-            return ce
+            # Convert old format to new format if needed
+            if "metadata" in data and "_metadata" not in data:
+                data = {
+                    "_metadata": data["metadata"],
+                    "data": data["data"]
+                }
+            return CacheEntry.model_validate(data)
+
         try:
-            ce = json.loads(data, object_hook=custom_decoder)
-            if not isinstance(ce, CacheEntry):
-                ce = CacheEntry(**ce)
-                if not isinstance(ce, CacheEntry):
-                    raise ValueError("Deserialized object is not a CacheEntry")
+            decoded = json.loads(data, object_hook=custom_decoder)
+            if not isinstance(decoded, CacheEntry):
+                # Convert old format to new format if needed
+                if "metadata" in decoded and "_metadata" not in decoded:
+                    decoded = {
+                        "_metadata": decoded["metadata"],
+                        "data": decoded["data"]
+                    }
+                ce = CacheEntry.model_validate(decoded)
+            else:
+                ce = decoded
             deserialized_data = self._deserialize_data(ce.data, ce.metadata.data_type)
             ce.data = deserialized_data
             return ce

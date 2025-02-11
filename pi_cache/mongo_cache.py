@@ -12,7 +12,7 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import ConnectionFailure
 
-from qrev_cache.base_cache import (
+from pi_cache.base_cache import (
     BaseCache,
     CacheEntry,
     CacheSettings,

@@ -26,10 +26,10 @@ from typing import (
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
-from qrev_cache.utils.time_utils import parse_date_string
+from pi_cache.utils.time_utils import parse_date_string
 
 if TYPE_CHECKING:
-    from qrev_cache.base_cache import FuncCall
+    from pi_cache.base_cache import FuncCall
 
 T = TypeVar("T")
 

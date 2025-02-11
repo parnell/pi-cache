@@ -1,11 +1,11 @@
-# QRev Cache
+# Pi Cache
 
 A flexible file-based caching system for Python functions with support for complex data types and configurable caching behavior.
 
 ## Installation
 
 ```bash
-pip install qrev-cache
+pip install pi-cache
 ```
 
 ## Features
@@ -20,7 +20,7 @@ pip install qrev-cache
 ## Quick Start
 
 ```python
-from qrev_cache import local_cache
+from pi_cache import local_cache
 from datetime import datetime
 
 @local_cache(expiration="1d")  # Cache for 1 day
@@ -40,7 +40,7 @@ cached_result = get_user_data(123)
 ### Custom Cache Settings
 
 ```python
-from qrev_cache import local_cache, FileCacheSettings, TimeCheck
+from pi_cache import local_cache, FileCacheSettings, TimeCheck
 from pathlib import Path
 
 settings = FileCacheSettings(

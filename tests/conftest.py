@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from qrev_cache.base_cache import BaseCache, CacheEntry, ModelMetadata
+from pi_cache.base_cache import BaseCache, CacheEntry, ModelMetadata
 
 
 def create_cache_entry(data: Any, expires_in_hours: int = 1) -> CacheEntry:
