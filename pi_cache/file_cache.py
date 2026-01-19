@@ -20,7 +20,7 @@ from pi_cache.base_cache import (
 
 
 class FileCacheSettings(CacheSettings):
-    cache_dir: str | Path = Path("cache")
+    cache_dir: str | Path = Path(".cache")
     expiration: Optional[str | int] = None
     key_parameters: Optional[list[str]] = None
     lock_timeout: float = 10.0  # Timeout in seconds for acquiring locks
